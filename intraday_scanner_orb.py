@@ -1,1097 +1,930 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": 1,
-   "id": "ae26e346-c8d7-4bc9-ab9e-98f0b8aa7ca5",
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "2026-08-15 10:18:27.483 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.507 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.508 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.559 \n",
-      "  \u001b[33m\u001b[1mWarning:\u001b[0m to view this Streamlit app on a browser, run it with the following\n",
-      "  command:\n",
-      "\n",
-      "    streamlit run C:\\Users\\Vinothkumar\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\ipykernel_launcher.py [ARGUMENTS]\n",
-      "2026-08-15 10:18:27.560 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.564 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.565 No runtime found, using MemoryCacheStorageManager\n",
-      "2026-08-15 10:18:27.571 No runtime found, using MemoryCacheStorageManager\n",
-      "2026-08-15 10:18:27.580 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.580 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.583 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.583 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.585 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.587 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.588 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.588 Session state does not function when running a script without `streamlit run`\n",
-      "2026-08-15 10:18:27.588 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.588 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.588 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.591 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.591 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.592 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.592 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.594 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.596 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.597 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.601 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.605 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.607 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.608 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.608 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.610 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.611 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.611 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.614 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.614 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.616 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.617 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.617 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.619 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.620 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.621 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.622 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.622 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.622 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.624 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.624 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.626 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.627 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.630 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.630 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.630 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.635 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.637 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.637 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.637 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.639 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.639 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.641 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.641 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.642 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.642 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.644 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.644 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.646 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.647 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.647 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.649 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.649 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.649 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.652 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.652 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.652 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.652 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.652 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.655 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.655 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.656 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.656 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.656 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.658 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.660 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.661 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.662 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.662 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.664 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.665 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.665 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.668 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.668 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.670 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.671 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.671 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.671 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.672 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.672 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.674 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.674 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.675 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.675 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.676 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.676 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.677 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.679 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.680 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.682 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.683 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.683 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.683 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.685 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.685 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.808 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.808 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
-      "2026-08-15 10:18:27.810 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n"
-     ]
+import requests
+import pandas as pd
+import numpy as np
+import streamlit as st
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+from urllib.parse import quote
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+    AUTOREFRESH_AVAILABLE = True
+except ImportError:
+    AUTOREFRESH_AVAILABLE = False
+
+INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+IST = ZoneInfo("Asia/Kolkata")
+
+st.set_page_config(page_title="Intraday Scanner", layout="wide")
+
+# ---------------------------------------------------------------------
+# Tighten top spacing so the page starts higher / uses space better
+# ---------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+        .block-container {
+            padding-top: 1.2rem;
+            padding-bottom: 1rem;
+        }
+        div[data-testid="stVerticalBlock"] > div:has(> .element-container) {
+            gap: 0.4rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ---------------------------------------------------------------------
+# Sidebar UI
+# ---------------------------------------------------------------------
+def render_sidebar():
+    st.sidebar.header("Configuration")
+
+    access_token = st.sidebar.text_input(
+        "Upstox Access Token",
+        type="password",
+        value=st.session_state.get("access_token", ""),
+        key="access_token"
+    )
+
+    st.sidebar.divider()
+    st.sidebar.header("Expiry Settings")
+
+    expiry_choice = st.sidebar.radio(
+        "Select Expiry Month",
+        options=["Current Month", "Next Month"],
+        index=0,
+        key="expiry_choice",
+        help="Choose whether to scan the current month's or next month's F&O expiry."
+    )
+
+    st.sidebar.divider()
+    st.sidebar.header("Auto Refresh")
+
+    auto_refresh_enabled = st.sidebar.checkbox(
+        "Enable Auto-Refresh",
+        value=st.session_state.get("auto_refresh_enabled", False),
+        key="auto_refresh_enabled"
+    )
+
+    refresh_interval = st.sidebar.slider(
+        "Refresh Interval (seconds)",
+        min_value=1,
+        max_value=60,
+        value=st.session_state.get("refresh_interval", 15),
+        step=1,
+        key="refresh_interval"
+    )
+
+    if auto_refresh_enabled and not AUTOREFRESH_AVAILABLE:
+        st.sidebar.error(
+            "Auto-refresh needs the `streamlit-autorefresh` package.\n\n"
+            "Add `streamlit-autorefresh` to requirements.txt and redeploy."
+        )
+
+    # -------------------------------------------------------------
+    # Telegram Alerts
+    # -------------------------------------------------------------
+    st.sidebar.divider()
+    st.sidebar.header("Telegram Alerts")
+
+    telegram_enabled = st.sidebar.checkbox(
+        "Enable ORB Breakout Alerts",
+        value=st.session_state.get("telegram_enabled", False),
+        key="telegram_enabled",
+        help="Sends a Telegram message the moment an option's hourly candle confirms an ORB breakout."
+    )
+
+    telegram_bot_token = st.sidebar.text_input(
+        "Bot Token",
+        type="password",
+        value=st.session_state.get("telegram_bot_token", ""),
+        key="telegram_bot_token",
+        help="Create a bot via @BotFather on Telegram to get this token."
+    )
+
+    telegram_chat_id = st.sidebar.text_input(
+        "Chat ID",
+        value=st.session_state.get("telegram_chat_id", ""),
+        key="telegram_chat_id",
+        help="Your personal or group chat ID. Message @userinfobot to find yours."
+    )
+
+    tg_col1, tg_col2 = st.sidebar.columns(2)
+    test_telegram_clicked = tg_col1.button("Send Test", use_container_width=True)
+    reset_alert_state_clicked = tg_col2.button("Reset Alerts", use_container_width=True)
+
+    st.sidebar.divider()
+    st.sidebar.header("Data Management")
+
+    refresh_clicked = st.sidebar.button("⚡ Refresh LTP Now", use_container_width=True)
+
+    st.sidebar.subheader("NSE Instrument JSON")
+    download_clicked = st.sidebar.button("⬇️ Download Latest", use_container_width=True)
+
+    return (
+        access_token,
+        expiry_choice,
+        refresh_clicked,
+        download_clicked,
+        auto_refresh_enabled,
+        refresh_interval,
+        telegram_enabled,
+        telegram_bot_token,
+        telegram_chat_id,
+        test_telegram_clicked,
+        reset_alert_state_clicked
+    )
+
+
+# ---------------------------------------------------------------------
+# Instrument / expiry helpers
+# ---------------------------------------------------------------------
+def normalize_expiry(series):
+    return pd.to_datetime(
+        pd.to_numeric(series, errors="coerce"),
+        unit="ms",
+        errors="coerce"
+    ).dt.date
+
+
+def chunk_list(items, size=300):
+    items = list(items)
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading instrument file...")
+def load_nse_fo_instruments():
+    instruments = pd.read_json(INSTRUMENT_URL, compression="gzip")
+    instruments["expiry_date"] = normalize_expiry(instruments["expiry"])
+
+    futures = instruments[
+        (instruments["segment"] == "NSE_FO") &
+        (instruments["instrument_type"] == "FUT") &
+        (instruments["underlying_type"] == "EQUITY")
+    ].copy()
+
+    options = instruments[
+        (instruments["segment"] == "NSE_FO") &
+        (instruments["instrument_type"].isin(["CE", "PE"])) &
+        (instruments["underlying_type"] == "EQUITY")
+    ].copy()
+
+    return futures, options
+
+
+def get_expiry_for_choice(df, choice):
+    today = date.today()
+    valid = sorted(df[df["expiry_date"] >= today]["expiry_date"].unique())
+
+    if not valid:
+        return None
+
+    if choice == "Current Month":
+        return valid[0]
+
+    current_month = today.month
+    for exp in valid:
+        if exp.month != current_month:
+            return exp
+
+    return valid[-1] if len(valid) > 1 else valid[0]
+
+
+# ---------------------------------------------------------------------
+# Quote fetchers (live data - refreshed every cycle)
+# ---------------------------------------------------------------------
+def fetch_future_open_v3(instrument_keys, headers):
+    """Fetch today's live OHLC (used only for the future's Open price).
+    Returns (dataframe, raw_sample) where raw_sample is a small slice of
+    the raw API response for diagnostics if open prices come back empty.
+    """
+    url = "https://api.upstox.com/v3/market-quote/ohlc"
+    rows = []
+    raw_sample = None
+
+    for keys in chunk_list(instrument_keys):
+        params = {"instrument_key": ",".join(keys), "interval": "1d"}
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+        except Exception as e:
+            st.warning(f"OHLC request error: {e}")
+            continue
+
+        if response.status_code != 200:
+            st.warning(f"OHLC Error {response.status_code}: {response.text[:300]}")
+            continue
+
+        try:
+            payload = response.json()
+            data = payload.get("data", {})
+        except Exception as e:
+            st.warning(f"Invalid OHLC response: {e}")
+            continue
+
+        if raw_sample is None:
+            # keep first couple of entries verbatim for diagnostics
+            raw_sample = dict(list(data.items())[:2])
+
+        for response_key, item in data.items():
+            if not isinstance(item, dict):
+                continue
+
+            live = item.get("live_ohlc") or item.get("ohlc") or {}
+            prev = item.get("prev_ohlc") or {}
+
+            # IMPORTANT: Upstox keys this response dict by trading symbol
+            # (e.g. "NSE_FO:SBIN26AUGFUT"), NOT by instrument_key. The
+            # actual instrument_key (pipe format, e.g. "NSE_FO|58382")
+            # that matches the instrument master is nested inside the
+            # item itself as "instrument_token". Using response_key was
+            # causing every merge to silently fail (future_open -> NaN)
+            # even though Upstox was returning valid open prices.
+            true_key = item.get("instrument_token") or response_key
+
+            # Prefer live_ohlc.open; fall back to prev_ohlc.close, then
+            # last_price, so a partially-populated response doesn't
+            # zero out the whole row.
+            open_price = (
+                live.get("open")
+                if live.get("open") not in (None, 0)
+                else prev.get("close") if prev.get("close") not in (None, 0)
+                else item.get("last_price")
+            )
+
+            rows.append({
+                "instrument_key": true_key,
+                "future_open": open_price,
+                "future_ltp": item.get("last_price"),
+            })
+
+    return pd.DataFrame(rows), raw_sample
+
+
+def fetch_ltp_v3(instrument_keys, headers):
+    url = "https://api.upstox.com/v3/market-quote/ltp"
+    rows = []
+
+    for keys in chunk_list(instrument_keys):
+        params = {"instrument_key": ",".join(keys)}
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+        except Exception as e:
+            st.warning(f"LTP request error: {e}")
+            continue
+
+        if response.status_code != 200:
+            st.warning(f"LTP Error {response.status_code}: {response.text[:300]}")
+            continue
+
+        try:
+            data = response.json().get("data", {})
+        except Exception:
+            continue
+
+        for response_key, item in data.items():
+            if not isinstance(item, dict):
+                continue
+
+            # Same defensive fix as OHLC: prefer the instrument_token
+            # nested in the payload over the dict key, in case this
+            # endpoint also keys by trading symbol for some instruments.
+            true_key = item.get("instrument_token") or response_key
+
+            rows.append({
+                "instrument_key": true_key,
+                "ltp": item.get("last_price"),
+                "prev_close": item.get("cp"),
+                "volume": item.get("volume"),
+            })
+
+    return pd.DataFrame(rows)
+
+
+def nearest_option(options_df, underlying_key, expiry, option_type, future_open):
+    chain = options_df[
+        (options_df["underlying_key"] == underlying_key) &
+        (options_df["expiry_date"] == expiry) &
+        (options_df["instrument_type"] == option_type)
+    ].copy()
+
+    if chain.empty or pd.isna(future_open):
+        return None
+
+    chain["strike_diff"] = (chain["strike_price"] - future_open).abs()
+    return chain.sort_values("strike_diff").iloc[0]
+
+
+# ---------------------------------------------------------------------
+# ORB (Opening Range Breakout) — 1-hour candle logic
+#
+# Replaces the previous PDL-based Trigger entirely.
+#
+#   Trigger = High of the FIRST 1-hour candle of the trading day
+#             (e.g. 9:15-10:15 IST). This locks in once that first
+#             hourly candle closes; before that it reflects the
+#             developing high of the opening hour.
+#
+#   TGT     = Trigger x 1.30   (30% above Trigger)
+#   SL      = Trigger x 0.85   (15% below Trigger)
+#
+#   Breakout is only CONFIRMED on the first later hourly candle where:
+#     - that candle's High >= Trigger   (it actually crossed Trigger)
+#     - that candle's Low  >= SL        (it did NOT undercut Trigger
+#                                         by more than 15% - i.e. the
+#                                         breakout candle's own low
+#                                         didn't fall below SL)
+#
+#   Example: first-hour High = 150 -> Trigger = 150, SL = 127.5.
+#   A later hourly candle that pokes above 150 but whose low drops to
+#   120 does NOT count as a confirmed breakout (it undercut SL).
+#
+# Uses Upstox's intraday historical-candle endpoint (unit=hours,
+# interval=1), which returns today's hourly candles including the
+# currently-forming one. Cached for a short 15s TTL per refresh cycle
+# so repeated auto-refreshes don't hammer the API, while still staying
+# effectively live.
+# ---------------------------------------------------------------------
+def _fetch_single_orb_data(instrument_key, headers):
+    safe_key = quote(instrument_key, safe="|")
+    url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1"
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code != 200:
+            return instrument_key, None, f"HTTP {response.status_code}: {response.text[:200]}"
+
+        payload = response.json()
+        candles = payload.get("data", {}).get("candles", [])
+
+        if not candles:
+            return instrument_key, None, "No intraday hourly candles yet today"
+
+        # Each candle: [timestamp, open, high, low, close, volume, oi].
+        # Upstox returns these newest-first; sort chronologically so
+        # index 0 is genuinely the first (opening) hour of the day.
+        candles_sorted = sorted(candles, key=lambda c: c[0])
+
+        first_hour = candles_sorted[0]
+        trigger = first_hour[2]  # high of the first 1-hour candle
+
+        if trigger in (None, 0):
+            return instrument_key, None, "First-hour candle has no valid high"
+
+        tgt = trigger * 1.30
+        sl = trigger * 0.85
+
+        breakout_candle = None
+        for candle in candles_sorted[1:]:
+            c_high, c_low = candle[2], candle[3]
+            if c_high is None or c_low is None:
+                continue
+            if c_high >= trigger and c_low >= sl:
+                breakout_candle = candle
+                break  # first valid confirming candle only
+
+        info = {
+            "trigger": trigger,
+            "tgt": tgt,
+            "sl": sl,
+            "breakout_confirmed": breakout_candle is not None,
+            "breakout_time": breakout_candle[0] if breakout_candle else None,
+            "first_hour_complete": len(candles_sorted) >= 2,
+        }
+        return instrument_key, info, None
+
+    except Exception as e:
+        return instrument_key, None, f"Exception: {e}"
+
+
+@st.cache_data(ttl=15, show_spinner="Computing ORB trigger levels...")
+def fetch_orb_map(instrument_keys, headers_tuple):
+    headers = dict(headers_tuple)
+    result = {}
+    sample_errors = []
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_fetch_single_orb_data, key, headers): key
+            for key in instrument_keys
+        }
+
+        for future in as_completed(futures):
+            key, info, error = future.result()
+            result[key] = info
+
+            if error and len(sample_errors) < 5:
+                sample_errors.append(f"{key} -> {error}")
+
+    return result, sample_errors
+
+
+# ---------------------------------------------------------------------
+# Telegram Alerts
+#
+# Fires once per symbol, the moment its ORB breakout is CONFIRMED
+# (the hourly candle both crossed Trigger and held above SL). State is
+# tracked in st.session_state so it doesn't re-alert on every refresh.
+# ---------------------------------------------------------------------
+def send_telegram_alert(bot_token, chat_id, message):
+    if not bot_token or not chat_id:
+        return False, "Missing bot token or chat ID"
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            return True, None
+        return False, f"HTTP {response.status_code}: {response.text[:200]}"
+    except Exception as e:
+        return False, f"Exception: {e}"
+
+
+def check_and_alert_orb_breakouts(df, bot_token, chat_id):
+    if df.empty:
+        return
+
+    alerted = st.session_state.setdefault("orb_alert_state", set())
+    newly_confirmed = []
+
+    for _, row in df.iterrows():
+        symbol = row["Symbol"]
+
+        if row["Breakout"] == "✅" and symbol not in alerted:
+            newly_confirmed.append(row)
+            alerted.add(symbol)
+
+    if not newly_confirmed:
+        return
+
+    message_lines = ["🚀 <b>ORB Breakout Confirmed</b>"]
+    for row in newly_confirmed:
+        message_lines.append(
+            f"\n<b>{row['Symbol']}</b>\n"
+            f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}\n"
+            f"TGT: {row['TGT']:.2f}   SL: {row['SL']:.2f}"
+        )
+
+    message = "\n".join(message_lines)
+    success, error = send_telegram_alert(bot_token, chat_id, message)
+
+    if success:
+        st.sidebar.success(f"Telegram alert sent for {len(newly_confirmed)} breakout(s).")
+    else:
+        st.sidebar.warning(f"Telegram alert failed: {error}")
+
+
+# ---------------------------------------------------------------------
+# Main scanner
+# ---------------------------------------------------------------------
+def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {access_token}"
     }
-   ],
-   "source": [
-    "import requests\n",
-    "import pandas as pd\n",
-    "import numpy as np\n",
-    "import streamlit as st\n",
-    "from datetime import date, datetime, timedelta\n",
-    "from zoneinfo import ZoneInfo\n",
-    "from urllib.parse import quote\n",
-    "from concurrent.futures import ThreadPoolExecutor, as_completed\n",
-    "\n",
-    "try:\n",
-    "    from streamlit_autorefresh import st_autorefresh\n",
-    "    AUTOREFRESH_AVAILABLE = True\n",
-    "except ImportError:\n",
-    "    AUTOREFRESH_AVAILABLE = False\n",
-    "\n",
-    "INSTRUMENT_URL = \"https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz\"\n",
-    "IST = ZoneInfo(\"Asia/Kolkata\")\n",
-    "\n",
-    "st.set_page_config(page_title=\"Intraday Scanner\", layout=\"wide\")\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# Tighten top spacing so the page starts higher / uses space better\n",
-    "# ---------------------------------------------------------------------\n",
-    "st.markdown(\n",
-    "    \"\"\"\n",
-    "    <style>\n",
-    "        .block-container {\n",
-    "            padding-top: 1.2rem;\n",
-    "            padding-bottom: 1rem;\n",
-    "        }\n",
-    "        div[data-testid=\"stVerticalBlock\"] > div:has(> .element-container) {\n",
-    "            gap: 0.4rem;\n",
-    "        }\n",
-    "    </style>\n",
-    "    \"\"\",\n",
-    "    unsafe_allow_html=True\n",
-    ")\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# Sidebar UI\n",
-    "# ---------------------------------------------------------------------\n",
-    "def render_sidebar():\n",
-    "    st.sidebar.header(\"Configuration\")\n",
-    "\n",
-    "    access_token = st.sidebar.text_input(\n",
-    "        \"Upstox Access Token\",\n",
-    "        type=\"password\",\n",
-    "        value=st.session_state.get(\"access_token\", \"\"),\n",
-    "        key=\"access_token\"\n",
-    "    )\n",
-    "\n",
-    "    st.sidebar.divider()\n",
-    "    st.sidebar.header(\"Expiry Settings\")\n",
-    "\n",
-    "    expiry_choice = st.sidebar.radio(\n",
-    "        \"Select Expiry Month\",\n",
-    "        options=[\"Current Month\", \"Next Month\"],\n",
-    "        index=0,\n",
-    "        key=\"expiry_choice\",\n",
-    "        help=\"Choose whether to scan the current month's or next month's F&O expiry.\"\n",
-    "    )\n",
-    "\n",
-    "    st.sidebar.divider()\n",
-    "    st.sidebar.header(\"Auto Refresh\")\n",
-    "\n",
-    "    auto_refresh_enabled = st.sidebar.checkbox(\n",
-    "        \"Enable Auto-Refresh\",\n",
-    "        value=st.session_state.get(\"auto_refresh_enabled\", False),\n",
-    "        key=\"auto_refresh_enabled\"\n",
-    "    )\n",
-    "\n",
-    "    refresh_interval = st.sidebar.slider(\n",
-    "        \"Refresh Interval (seconds)\",\n",
-    "        min_value=1,\n",
-    "        max_value=60,\n",
-    "        value=st.session_state.get(\"refresh_interval\", 15),\n",
-    "        step=1,\n",
-    "        key=\"refresh_interval\"\n",
-    "    )\n",
-    "\n",
-    "    if auto_refresh_enabled and not AUTOREFRESH_AVAILABLE:\n",
-    "        st.sidebar.error(\n",
-    "            \"Auto-refresh needs the `streamlit-autorefresh` package.\\n\\n\"\n",
-    "            \"Add `streamlit-autorefresh` to requirements.txt and redeploy.\"\n",
-    "        )\n",
-    "\n",
-    "    # -------------------------------------------------------------\n",
-    "    # Telegram Alerts\n",
-    "    # -------------------------------------------------------------\n",
-    "    st.sidebar.divider()\n",
-    "    st.sidebar.header(\"Telegram Alerts\")\n",
-    "\n",
-    "    telegram_enabled = st.sidebar.checkbox(\n",
-    "        \"Enable ORB Breakout Alerts\",\n",
-    "        value=st.session_state.get(\"telegram_enabled\", False),\n",
-    "        key=\"telegram_enabled\",\n",
-    "        help=\"Sends a Telegram message the moment an option's hourly candle confirms an ORB breakout.\"\n",
-    "    )\n",
-    "\n",
-    "    telegram_bot_token = st.sidebar.text_input(\n",
-    "        \"Bot Token\",\n",
-    "        type=\"password\",\n",
-    "        value=st.session_state.get(\"telegram_bot_token\", \"\"),\n",
-    "        key=\"telegram_bot_token\",\n",
-    "        help=\"Create a bot via @BotFather on Telegram to get this token.\"\n",
-    "    )\n",
-    "\n",
-    "    telegram_chat_id = st.sidebar.text_input(\n",
-    "        \"Chat ID\",\n",
-    "        value=st.session_state.get(\"telegram_chat_id\", \"\"),\n",
-    "        key=\"telegram_chat_id\",\n",
-    "        help=\"Your personal or group chat ID. Message @userinfobot to find yours.\"\n",
-    "    )\n",
-    "\n",
-    "    tg_col1, tg_col2 = st.sidebar.columns(2)\n",
-    "    test_telegram_clicked = tg_col1.button(\"Send Test\", use_container_width=True)\n",
-    "    reset_alert_state_clicked = tg_col2.button(\"Reset Alerts\", use_container_width=True)\n",
-    "\n",
-    "    st.sidebar.divider()\n",
-    "    st.sidebar.header(\"Data Management\")\n",
-    "\n",
-    "    refresh_clicked = st.sidebar.button(\"⚡ Refresh LTP Now\", use_container_width=True)\n",
-    "\n",
-    "    st.sidebar.subheader(\"NSE Instrument JSON\")\n",
-    "    download_clicked = st.sidebar.button(\"⬇️ Download Latest\", use_container_width=True)\n",
-    "\n",
-    "    return (\n",
-    "        access_token,\n",
-    "        expiry_choice,\n",
-    "        refresh_clicked,\n",
-    "        download_clicked,\n",
-    "        auto_refresh_enabled,\n",
-    "        refresh_interval,\n",
-    "        telegram_enabled,\n",
-    "        telegram_bot_token,\n",
-    "        telegram_chat_id,\n",
-    "        test_telegram_clicked,\n",
-    "        reset_alert_state_clicked\n",
-    "    )\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# Instrument / expiry helpers\n",
-    "# ---------------------------------------------------------------------\n",
-    "def normalize_expiry(series):\n",
-    "    return pd.to_datetime(\n",
-    "        pd.to_numeric(series, errors=\"coerce\"),\n",
-    "        unit=\"ms\",\n",
-    "        errors=\"coerce\"\n",
-    "    ).dt.date\n",
-    "\n",
-    "\n",
-    "def chunk_list(items, size=300):\n",
-    "    items = list(items)\n",
-    "    for i in range(0, len(items), size):\n",
-    "        yield items[i:i + size]\n",
-    "\n",
-    "\n",
-    "@st.cache_data(ttl=3600, show_spinner=\"Loading instrument file...\")\n",
-    "def load_nse_fo_instruments():\n",
-    "    instruments = pd.read_json(INSTRUMENT_URL, compression=\"gzip\")\n",
-    "    instruments[\"expiry_date\"] = normalize_expiry(instruments[\"expiry\"])\n",
-    "\n",
-    "    futures = instruments[\n",
-    "        (instruments[\"segment\"] == \"NSE_FO\") &\n",
-    "        (instruments[\"instrument_type\"] == \"FUT\") &\n",
-    "        (instruments[\"underlying_type\"] == \"EQUITY\")\n",
-    "    ].copy()\n",
-    "\n",
-    "    options = instruments[\n",
-    "        (instruments[\"segment\"] == \"NSE_FO\") &\n",
-    "        (instruments[\"instrument_type\"].isin([\"CE\", \"PE\"])) &\n",
-    "        (instruments[\"underlying_type\"] == \"EQUITY\")\n",
-    "    ].copy()\n",
-    "\n",
-    "    return futures, options\n",
-    "\n",
-    "\n",
-    "def get_expiry_for_choice(df, choice):\n",
-    "    today = date.today()\n",
-    "    valid = sorted(df[df[\"expiry_date\"] >= today][\"expiry_date\"].unique())\n",
-    "\n",
-    "    if not valid:\n",
-    "        return None\n",
-    "\n",
-    "    if choice == \"Current Month\":\n",
-    "        return valid[0]\n",
-    "\n",
-    "    current_month = today.month\n",
-    "    for exp in valid:\n",
-    "        if exp.month != current_month:\n",
-    "            return exp\n",
-    "\n",
-    "    return valid[-1] if len(valid) > 1 else valid[0]\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# Quote fetchers (live data - refreshed every cycle)\n",
-    "# ---------------------------------------------------------------------\n",
-    "def fetch_future_open_v3(instrument_keys, headers):\n",
-    "    \"\"\"Fetch today's live OHLC (used only for the future's Open price).\n",
-    "    Returns (dataframe, raw_sample) where raw_sample is a small slice of\n",
-    "    the raw API response for diagnostics if open prices come back empty.\n",
-    "    \"\"\"\n",
-    "    url = \"https://api.upstox.com/v3/market-quote/ohlc\"\n",
-    "    rows = []\n",
-    "    raw_sample = None\n",
-    "\n",
-    "    for keys in chunk_list(instrument_keys):\n",
-    "        params = {\"instrument_key\": \",\".join(keys), \"interval\": \"1d\"}\n",
-    "\n",
-    "        try:\n",
-    "            response = requests.get(url, headers=headers, params=params, timeout=20)\n",
-    "        except Exception as e:\n",
-    "            st.warning(f\"OHLC request error: {e}\")\n",
-    "            continue\n",
-    "\n",
-    "        if response.status_code != 200:\n",
-    "            st.warning(f\"OHLC Error {response.status_code}: {response.text[:300]}\")\n",
-    "            continue\n",
-    "\n",
-    "        try:\n",
-    "            payload = response.json()\n",
-    "            data = payload.get(\"data\", {})\n",
-    "        except Exception as e:\n",
-    "            st.warning(f\"Invalid OHLC response: {e}\")\n",
-    "            continue\n",
-    "\n",
-    "        if raw_sample is None:\n",
-    "            # keep first couple of entries verbatim for diagnostics\n",
-    "            raw_sample = dict(list(data.items())[:2])\n",
-    "\n",
-    "        for response_key, item in data.items():\n",
-    "            if not isinstance(item, dict):\n",
-    "                continue\n",
-    "\n",
-    "            live = item.get(\"live_ohlc\") or item.get(\"ohlc\") or {}\n",
-    "            prev = item.get(\"prev_ohlc\") or {}\n",
-    "\n",
-    "            # IMPORTANT: Upstox keys this response dict by trading symbol\n",
-    "            # (e.g. \"NSE_FO:SBIN26AUGFUT\"), NOT by instrument_key. The\n",
-    "            # actual instrument_key (pipe format, e.g. \"NSE_FO|58382\")\n",
-    "            # that matches the instrument master is nested inside the\n",
-    "            # item itself as \"instrument_token\". Using response_key was\n",
-    "            # causing every merge to silently fail (future_open -> NaN)\n",
-    "            # even though Upstox was returning valid open prices.\n",
-    "            true_key = item.get(\"instrument_token\") or response_key\n",
-    "\n",
-    "            # Prefer live_ohlc.open; fall back to prev_ohlc.close, then\n",
-    "            # last_price, so a partially-populated response doesn't\n",
-    "            # zero out the whole row.\n",
-    "            open_price = (\n",
-    "                live.get(\"open\")\n",
-    "                if live.get(\"open\") not in (None, 0)\n",
-    "                else prev.get(\"close\") if prev.get(\"close\") not in (None, 0)\n",
-    "                else item.get(\"last_price\")\n",
-    "            )\n",
-    "\n",
-    "            rows.append({\n",
-    "                \"instrument_key\": true_key,\n",
-    "                \"future_open\": open_price,\n",
-    "                \"future_ltp\": item.get(\"last_price\"),\n",
-    "            })\n",
-    "\n",
-    "    return pd.DataFrame(rows), raw_sample\n",
-    "\n",
-    "\n",
-    "def fetch_ltp_v3(instrument_keys, headers):\n",
-    "    url = \"https://api.upstox.com/v3/market-quote/ltp\"\n",
-    "    rows = []\n",
-    "\n",
-    "    for keys in chunk_list(instrument_keys):\n",
-    "        params = {\"instrument_key\": \",\".join(keys)}\n",
-    "\n",
-    "        try:\n",
-    "            response = requests.get(url, headers=headers, params=params, timeout=20)\n",
-    "        except Exception as e:\n",
-    "            st.warning(f\"LTP request error: {e}\")\n",
-    "            continue\n",
-    "\n",
-    "        if response.status_code != 200:\n",
-    "            st.warning(f\"LTP Error {response.status_code}: {response.text[:300]}\")\n",
-    "            continue\n",
-    "\n",
-    "        try:\n",
-    "            data = response.json().get(\"data\", {})\n",
-    "        except Exception:\n",
-    "            continue\n",
-    "\n",
-    "        for response_key, item in data.items():\n",
-    "            if not isinstance(item, dict):\n",
-    "                continue\n",
-    "\n",
-    "            # Same defensive fix as OHLC: prefer the instrument_token\n",
-    "            # nested in the payload over the dict key, in case this\n",
-    "            # endpoint also keys by trading symbol for some instruments.\n",
-    "            true_key = item.get(\"instrument_token\") or response_key\n",
-    "\n",
-    "            rows.append({\n",
-    "                \"instrument_key\": true_key,\n",
-    "                \"ltp\": item.get(\"last_price\"),\n",
-    "                \"prev_close\": item.get(\"cp\"),\n",
-    "                \"volume\": item.get(\"volume\"),\n",
-    "            })\n",
-    "\n",
-    "    return pd.DataFrame(rows)\n",
-    "\n",
-    "\n",
-    "def nearest_option(options_df, underlying_key, expiry, option_type, future_open):\n",
-    "    chain = options_df[\n",
-    "        (options_df[\"underlying_key\"] == underlying_key) &\n",
-    "        (options_df[\"expiry_date\"] == expiry) &\n",
-    "        (options_df[\"instrument_type\"] == option_type)\n",
-    "    ].copy()\n",
-    "\n",
-    "    if chain.empty or pd.isna(future_open):\n",
-    "        return None\n",
-    "\n",
-    "    chain[\"strike_diff\"] = (chain[\"strike_price\"] - future_open).abs()\n",
-    "    return chain.sort_values(\"strike_diff\").iloc[0]\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# ORB (Opening Range Breakout) — 1-hour candle logic\n",
-    "#\n",
-    "# Replaces the previous PDL-based Trigger entirely.\n",
-    "#\n",
-    "#   Trigger = High of the FIRST 1-hour candle of the trading day\n",
-    "#             (e.g. 9:15-10:15 IST). This locks in once that first\n",
-    "#             hourly candle closes; before that it reflects the\n",
-    "#             developing high of the opening hour.\n",
-    "#\n",
-    "#   TGT     = Trigger x 1.30   (30% above Trigger)\n",
-    "#   SL      = Trigger x 0.85   (15% below Trigger)\n",
-    "#\n",
-    "#   Breakout is only CONFIRMED on the first later hourly candle where:\n",
-    "#     - that candle's High >= Trigger   (it actually crossed Trigger)\n",
-    "#     - that candle's Low  >= SL        (it did NOT undercut Trigger\n",
-    "#                                         by more than 15% - i.e. the\n",
-    "#                                         breakout candle's own low\n",
-    "#                                         didn't fall below SL)\n",
-    "#\n",
-    "#   Example: first-hour High = 150 -> Trigger = 150, SL = 127.5.\n",
-    "#   A later hourly candle that pokes above 150 but whose low drops to\n",
-    "#   120 does NOT count as a confirmed breakout (it undercut SL).\n",
-    "#\n",
-    "# Uses Upstox's intraday historical-candle endpoint (unit=hours,\n",
-    "# interval=1), which returns today's hourly candles including the\n",
-    "# currently-forming one. Cached for a short 15s TTL per refresh cycle\n",
-    "# so repeated auto-refreshes don't hammer the API, while still staying\n",
-    "# effectively live.\n",
-    "# ---------------------------------------------------------------------\n",
-    "def _fetch_single_orb_data(instrument_key, headers):\n",
-    "    safe_key = quote(instrument_key, safe=\"|\")\n",
-    "    url = f\"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1\"\n",
-    "\n",
-    "    try:\n",
-    "        response = requests.get(url, headers=headers, timeout=10)\n",
-    "\n",
-    "        if response.status_code != 200:\n",
-    "            return instrument_key, None, f\"HTTP {response.status_code}: {response.text[:200]}\"\n",
-    "\n",
-    "        payload = response.json()\n",
-    "        candles = payload.get(\"data\", {}).get(\"candles\", [])\n",
-    "\n",
-    "        if not candles:\n",
-    "            return instrument_key, None, \"No intraday hourly candles yet today\"\n",
-    "\n",
-    "        # Each candle: [timestamp, open, high, low, close, volume, oi].\n",
-    "        # Upstox returns these newest-first; sort chronologically so\n",
-    "        # index 0 is genuinely the first (opening) hour of the day.\n",
-    "        candles_sorted = sorted(candles, key=lambda c: c[0])\n",
-    "\n",
-    "        first_hour = candles_sorted[0]\n",
-    "        trigger = first_hour[2]  # high of the first 1-hour candle\n",
-    "\n",
-    "        if trigger in (None, 0):\n",
-    "            return instrument_key, None, \"First-hour candle has no valid high\"\n",
-    "\n",
-    "        tgt = trigger * 1.30\n",
-    "        sl = trigger * 0.85\n",
-    "\n",
-    "        breakout_candle = None\n",
-    "        for candle in candles_sorted[1:]:\n",
-    "            c_high, c_low = candle[2], candle[3]\n",
-    "            if c_high is None or c_low is None:\n",
-    "                continue\n",
-    "            if c_high >= trigger and c_low >= sl:\n",
-    "                breakout_candle = candle\n",
-    "                break  # first valid confirming candle only\n",
-    "\n",
-    "        info = {\n",
-    "            \"trigger\": trigger,\n",
-    "            \"tgt\": tgt,\n",
-    "            \"sl\": sl,\n",
-    "            \"breakout_confirmed\": breakout_candle is not None,\n",
-    "            \"breakout_time\": breakout_candle[0] if breakout_candle else None,\n",
-    "            \"first_hour_complete\": len(candles_sorted) >= 2,\n",
-    "        }\n",
-    "        return instrument_key, info, None\n",
-    "\n",
-    "    except Exception as e:\n",
-    "        return instrument_key, None, f\"Exception: {e}\"\n",
-    "\n",
-    "\n",
-    "@st.cache_data(ttl=15, show_spinner=\"Computing ORB trigger levels...\")\n",
-    "def fetch_orb_map(instrument_keys, headers_tuple):\n",
-    "    headers = dict(headers_tuple)\n",
-    "    result = {}\n",
-    "    sample_errors = []\n",
-    "\n",
-    "    with ThreadPoolExecutor(max_workers=6) as executor:\n",
-    "        futures = {\n",
-    "            executor.submit(_fetch_single_orb_data, key, headers): key\n",
-    "            for key in instrument_keys\n",
-    "        }\n",
-    "\n",
-    "        for future in as_completed(futures):\n",
-    "            key, info, error = future.result()\n",
-    "            result[key] = info\n",
-    "\n",
-    "            if error and len(sample_errors) < 5:\n",
-    "                sample_errors.append(f\"{key} -> {error}\")\n",
-    "\n",
-    "    return result, sample_errors\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# Telegram Alerts\n",
-    "#\n",
-    "# Fires once per symbol, the moment its ORB breakout is CONFIRMED\n",
-    "# (the hourly candle both crossed Trigger and held above SL). State is\n",
-    "# tracked in st.session_state so it doesn't re-alert on every refresh.\n",
-    "# ---------------------------------------------------------------------\n",
-    "def send_telegram_alert(bot_token, chat_id, message):\n",
-    "    if not bot_token or not chat_id:\n",
-    "        return False, \"Missing bot token or chat ID\"\n",
-    "\n",
-    "    url = f\"https://api.telegram.org/bot{bot_token}/sendMessage\"\n",
-    "    payload = {\"chat_id\": chat_id, \"text\": message, \"parse_mode\": \"HTML\"}\n",
-    "\n",
-    "    try:\n",
-    "        response = requests.post(url, json=payload, timeout=10)\n",
-    "        if response.status_code == 200:\n",
-    "            return True, None\n",
-    "        return False, f\"HTTP {response.status_code}: {response.text[:200]}\"\n",
-    "    except Exception as e:\n",
-    "        return False, f\"Exception: {e}\"\n",
-    "\n",
-    "\n",
-    "def check_and_alert_orb_breakouts(df, bot_token, chat_id):\n",
-    "    if df.empty:\n",
-    "        return\n",
-    "\n",
-    "    alerted = st.session_state.setdefault(\"orb_alert_state\", set())\n",
-    "    newly_confirmed = []\n",
-    "\n",
-    "    for _, row in df.iterrows():\n",
-    "        symbol = row[\"Symbol\"]\n",
-    "\n",
-    "        if row[\"Breakout\"] == \"✅\" and symbol not in alerted:\n",
-    "            newly_confirmed.append(row)\n",
-    "            alerted.add(symbol)\n",
-    "\n",
-    "    if not newly_confirmed:\n",
-    "        return\n",
-    "\n",
-    "    message_lines = [\"🚀 <b>ORB Breakout Confirmed</b>\"]\n",
-    "    for row in newly_confirmed:\n",
-    "        message_lines.append(\n",
-    "            f\"\\n<b>{row['Symbol']}</b>\\n\"\n",
-    "            f\"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}\\n\"\n",
-    "            f\"TGT: {row['TGT']:.2f}   SL: {row['SL']:.2f}\"\n",
-    "        )\n",
-    "\n",
-    "    message = \"\\n\".join(message_lines)\n",
-    "    success, error = send_telegram_alert(bot_token, chat_id, message)\n",
-    "\n",
-    "    if success:\n",
-    "        st.sidebar.success(f\"Telegram alert sent for {len(newly_confirmed)} breakout(s).\")\n",
-    "    else:\n",
-    "        st.sidebar.warning(f\"Telegram alert failed: {error}\")\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# Main scanner\n",
-    "# ---------------------------------------------------------------------\n",
-    "def build_open_strike_scanner(access_token, expiry_choice, top_n=20):\n",
-    "    headers = {\n",
-    "        \"Accept\": \"application/json\",\n",
-    "        \"Authorization\": f\"Bearer {access_token}\"\n",
-    "    }\n",
-    "\n",
-    "    futures, options = load_nse_fo_instruments()\n",
-    "    expiry = get_expiry_for_choice(futures, expiry_choice)\n",
-    "\n",
-    "    if expiry is None:\n",
-    "        st.error(\"No futures expiry found\")\n",
-    "        return pd.DataFrame(), pd.DataFrame()\n",
-    "\n",
-    "    futures = futures[futures[\"expiry_date\"] == expiry].copy()\n",
-    "    options = options[options[\"expiry_date\"] == expiry].copy()\n",
-    "\n",
-    "    st.caption(f\"Expiry: {expiry}  |  Stock futures: {len(futures)}\")\n",
-    "\n",
-    "    # -----------------------------------------------------------------\n",
-    "    # Futures Open (for ATM strike selection)\n",
-    "    # -----------------------------------------------------------------\n",
-    "    fut_quotes, ohlc_raw_sample = fetch_future_open_v3(futures[\"instrument_key\"].tolist(), headers)\n",
-    "\n",
-    "    if fut_quotes.empty:\n",
-    "        st.error(\"No futures open data received\")\n",
-    "        return pd.DataFrame(), pd.DataFrame()\n",
-    "\n",
-    "    futures = futures.merge(fut_quotes, on=\"instrument_key\", how=\"left\")\n",
-    "    futures = futures.dropna(subset=[\"future_open\"])\n",
-    "\n",
-    "    if futures.empty:\n",
-    "        st.error(\n",
-    "            \"All futures were dropped after the Open-price fetch \"\n",
-    "            \"(future_open came back empty/NaN for every instrument).\"\n",
-    "        )\n",
-    "        with st.expander(\"⚠️ Raw OHLC API response sample — diagnostics\", expanded=True):\n",
-    "            st.write(\n",
-    "                \"This is exactly what Upstox returned for the first couple \"\n",
-    "                \"of futures instruments requested:\"\n",
-    "            )\n",
-    "            st.json(ohlc_raw_sample if ohlc_raw_sample else {\"note\": \"response 'data' was empty\"})\n",
-    "        return pd.DataFrame(), pd.DataFrame()\n",
-    "\n",
-    "    # -----------------------------------------------------------------\n",
-    "    # Select nearest CE/PE for each future\n",
-    "    # -----------------------------------------------------------------\n",
-    "    selected_rows = []\n",
-    "\n",
-    "    for _, fut in futures.iterrows():\n",
-    "        ce = nearest_option(options, fut[\"underlying_key\"], expiry, \"CE\", fut[\"future_open\"])\n",
-    "        pe = nearest_option(options, fut[\"underlying_key\"], expiry, \"PE\", fut[\"future_open\"])\n",
-    "\n",
-    "        for opt in [ce, pe]:\n",
-    "            if opt is None:\n",
-    "                continue\n",
-    "\n",
-    "            selected_rows.append({\n",
-    "                \"underlying_symbol\": fut[\"underlying_symbol\"],\n",
-    "                \"strike\": opt[\"strike_price\"],\n",
-    "                \"option_type\": opt[\"instrument_type\"],\n",
-    "                \"option_key\": opt[\"instrument_key\"],\n",
-    "                \"Open\": fut[\"future_open\"],\n",
-    "                \"Lot\": opt[\"lot_size\"]\n",
-    "            })\n",
-    "\n",
-    "    selected = pd.DataFrame(selected_rows)\n",
-    "\n",
-    "    if selected.empty:\n",
-    "        # Diagnostics: figure out WHY nothing matched instead of\n",
-    "        # just saying \"No CE/PE options found\" with no way to tell why.\n",
-    "        fut_keys = set(futures[\"underlying_key\"].dropna().unique())\n",
-    "        opt_keys = set(options[\"underlying_key\"].dropna().unique())\n",
-    "        overlap = fut_keys & opt_keys\n",
-    "\n",
-    "        st.error(\"No CE/PE options found\")\n",
-    "        with st.expander(\"⚠️ Why no options matched — diagnostics\", expanded=True):\n",
-    "            st.write(f\"Futures rows (with valid Open): {len(futures)}\")\n",
-    "            st.write(f\"Options rows for this expiry: {len(options)}\")\n",
-    "            st.write(f\"Distinct underlying_key in futures: {len(fut_keys)}\")\n",
-    "            st.write(f\"Distinct underlying_key in options: {len(opt_keys)}\")\n",
-    "            st.write(f\"Overlapping underlying_key between the two: {len(overlap)}\")\n",
-    "            st.write(\"Sample futures underlying_key values:\", sorted(list(fut_keys))[:5])\n",
-    "            st.write(\"Sample options underlying_key values:\", sorted(list(opt_keys))[:5])\n",
-    "            if len(overlap) == 0 and fut_keys and opt_keys:\n",
-    "                st.write(\n",
-    "                    \"**No overlap at all** — the two dataframes are keyed \"\n",
-    "                    \"differently (e.g. one is empty, or the underlying_key \"\n",
-    "                    \"format differs). This is the actual bug to chase.\"\n",
-    "                )\n",
-    "        return pd.DataFrame(), pd.DataFrame()\n",
-    "\n",
-    "    # -----------------------------------------------------------------\n",
-    "    # Option LTP (live, every refresh)\n",
-    "    # -----------------------------------------------------------------\n",
-    "    option_quotes = fetch_ltp_v3(selected[\"option_key\"].tolist(), headers)\n",
-    "\n",
-    "    if option_quotes.empty:\n",
-    "        st.error(\"No option quote data received\")\n",
-    "        return pd.DataFrame(), pd.DataFrame()\n",
-    "\n",
-    "    option_quotes = option_quotes.drop_duplicates(\"instrument_key\")\n",
-    "\n",
-    "    selected = selected.merge(\n",
-    "        option_quotes,\n",
-    "        left_on=\"option_key\",\n",
-    "        right_on=\"instrument_key\",\n",
-    "        how=\"left\"\n",
-    "    )\n",
-    "    selected = selected.drop(columns=[\"instrument_key\"])\n",
-    "\n",
-    "    # -----------------------------------------------------------------\n",
-    "    # Symbol / Chg% / Ctr / Capital — computed first, since ranking by\n",
-    "    # Chg% only needs LTP data (already have it), not ORB levels.\n",
-    "    # -----------------------------------------------------------------\n",
-    "    selected[\"Symbol\"] = (\n",
-    "        selected[\"underlying_symbol\"].astype(str)\n",
-    "        + \" \"\n",
-    "        + selected[\"strike\"].astype(int).astype(str)\n",
-    "        + \" \"\n",
-    "        + selected[\"option_type\"].astype(str)\n",
-    "    )\n",
-    "\n",
-    "    selected[\"Chg%\"] = np.where(\n",
-    "        selected[\"prev_close\"] > 0,\n",
-    "        ((selected[\"ltp\"] - selected[\"prev_close\"]) / selected[\"prev_close\"]) * 100,\n",
-    "        np.nan\n",
-    "    )\n",
-    "\n",
-    "    selected[\"Ctr\"] = np.where(\n",
-    "        selected[\"Lot\"] > 0,\n",
-    "        selected[\"volume\"] / selected[\"Lot\"],\n",
-    "        np.nan\n",
-    "    )\n",
-    "\n",
-    "    selected[\"Capital\"] = selected[\"ltp\"] * selected[\"Lot\"]\n",
-    "\n",
-    "    selected = selected.rename(columns={\n",
-    "        \"ltp\": \"LTP\",\n",
-    "        \"volume\": \"Vol\",\n",
-    "        \"Capital\": \"Capital Required\"\n",
-    "    })\n",
-    "\n",
-    "    # -----------------------------------------------------------------\n",
-    "    # Rank down to only what will actually be shown (top_n CE + top_n\n",
-    "    # PE) BEFORE fetching ORB levels. The intraday candle endpoint is\n",
-    "    # one request per instrument — fetching it for all ~400 candidates\n",
-    "    # when only ~40 get displayed would trip Upstox's rate limits.\n",
-    "    # -----------------------------------------------------------------\n",
-    "    ce_candidates = (\n",
-    "        selected[selected[\"Symbol\"].str.endswith(\"CE\")]\n",
-    "        .sort_values(\"Chg%\", ascending=False)\n",
-    "        .head(top_n)\n",
-    "    )\n",
-    "    pe_candidates = (\n",
-    "        selected[selected[\"Symbol\"].str.endswith(\"PE\")]\n",
-    "        .sort_values(\"Chg%\", ascending=False)\n",
-    "        .head(top_n)\n",
-    "    )\n",
-    "    shortlisted = pd.concat([ce_candidates, pe_candidates], ignore_index=True)\n",
-    "\n",
-    "    # -----------------------------------------------------------------\n",
-    "    # ORB levels — first-hour High as Trigger, TGT/SL derived from it,\n",
-    "    # and breakout confirmation per the crossing-candle low rule.\n",
-    "    # -----------------------------------------------------------------\n",
-    "    orb_map, orb_errors = fetch_orb_map(\n",
-    "        tuple(sorted(shortlisted[\"option_key\"].unique())),\n",
-    "        tuple(headers.items())\n",
-    "    )\n",
-    "\n",
-    "    def _orb_field(option_key, field, default=None):\n",
-    "        info = orb_map.get(option_key)\n",
-    "        return info.get(field, default) if info else default\n",
-    "\n",
-    "    shortlisted[\"Trigger\"] = shortlisted[\"option_key\"].apply(lambda k: _orb_field(k, \"trigger\"))\n",
-    "    shortlisted[\"TGT\"] = shortlisted[\"option_key\"].apply(lambda k: _orb_field(k, \"tgt\"))\n",
-    "    shortlisted[\"SL\"] = shortlisted[\"option_key\"].apply(lambda k: _orb_field(k, \"sl\"))\n",
-    "    shortlisted[\"BreakoutConfirmed\"] = shortlisted[\"option_key\"].apply(\n",
-    "        lambda k: bool(_orb_field(k, \"breakout_confirmed\", False))\n",
-    "    )\n",
-    "\n",
-    "    shortlisted[\"Trigger\"] = pd.to_numeric(shortlisted[\"Trigger\"], errors=\"coerce\")\n",
-    "\n",
-    "    missing_count = shortlisted[\"Trigger\"].isna().sum()\n",
-    "    total_count = len(shortlisted)\n",
-    "\n",
-    "    if missing_count > 0:\n",
-    "        with st.expander(\n",
-    "            f\"⚠️ ORB Trigger not yet available for {missing_count}/{total_count} options — click for details\",\n",
-    "            expanded=(missing_count == total_count)\n",
-    "        ):\n",
-    "            st.write(\n",
-    "                \"This is normal before the first hourly candle (9:15-10:15 IST) \"\n",
-    "                \"has any data, or if Upstox hasn't returned candles yet.\"\n",
-    "            )\n",
-    "            if orb_errors:\n",
-    "                st.write(\"Sample errors from the intraday candle API:\")\n",
-    "                for err in orb_errors:\n",
-    "                    st.code(err)\n",
-    "\n",
-    "    shortlisted[\"Breakout\"] = np.where(shortlisted[\"BreakoutConfirmed\"], \"✅\", \"—\")\n",
-    "\n",
-    "    shortlisted[\"Away %\"] = np.where(\n",
-    "        shortlisted[\"Trigger\"] > 0,\n",
-    "        (shortlisted[\"LTP\"] / shortlisted[\"Trigger\"]) * 100,\n",
-    "        np.nan\n",
-    "    )\n",
-    "    shortlisted[\"Away %\"] = shortlisted[\"Away %\"].clip(lower=0)\n",
-    "\n",
-    "    # -----------------------------------------------------------------\n",
-    "    # Final column order: Symbol, Open, LTP, Trigger, Away%, TGT, SL,\n",
-    "    # Breakout, Chg%, Vol, Lot, Ctr, Capital Required.\n",
-    "    # -----------------------------------------------------------------\n",
-    "    result = shortlisted[[\n",
-    "        \"Symbol\",\n",
-    "        \"Open\",\n",
-    "        \"LTP\",\n",
-    "        \"Trigger\",\n",
-    "        \"Away %\",\n",
-    "        \"TGT\",\n",
-    "        \"SL\",\n",
-    "        \"Breakout\",\n",
-    "        \"Chg%\",\n",
-    "        \"Vol\",\n",
-    "        \"Lot\",\n",
-    "        \"Ctr\",\n",
-    "        \"Capital Required\"\n",
-    "    ]].copy()\n",
-    "\n",
-    "    for col in [\"Open\", \"Trigger\", \"TGT\", \"SL\", \"LTP\", \"Away %\", \"Chg%\"]:\n",
-    "        result[col] = pd.to_numeric(result[col], errors=\"coerce\").round(2)\n",
-    "\n",
-    "    result[\"Vol\"] = pd.to_numeric(result[\"Vol\"], errors=\"coerce\").fillna(0).astype(int)\n",
-    "    result[\"Lot\"] = pd.to_numeric(result[\"Lot\"], errors=\"coerce\").fillna(0).astype(int)\n",
-    "    result[\"Ctr\"] = pd.to_numeric(result[\"Ctr\"], errors=\"coerce\").round(0).astype(\"Int64\")\n",
-    "    result[\"Capital Required\"] = pd.to_numeric(\n",
-    "        result[\"Capital Required\"], errors=\"coerce\"\n",
-    "    ).round(0).fillna(0).astype(int)\n",
-    "\n",
-    "    ce_table = (\n",
-    "        result[result[\"Symbol\"].str.endswith(\"CE\")]\n",
-    "        .sort_values(\"Away %\", ascending=False, na_position=\"last\")\n",
-    "        .reset_index(drop=True)\n",
-    "    )\n",
-    "\n",
-    "    pe_table = (\n",
-    "        result[result[\"Symbol\"].str.endswith(\"PE\")]\n",
-    "        .sort_values(\"Away %\", ascending=False, na_position=\"last\")\n",
-    "        .reset_index(drop=True)\n",
-    "    )\n",
-    "\n",
-    "    return ce_table, pe_table\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# Display\n",
-    "# ---------------------------------------------------------------------\n",
-    "def table_height(df, row_px=35, header_px=38, max_px=900):\n",
-    "    return min(header_px + row_px * max(len(df), 1) + 3, max_px)\n",
-    "\n",
-    "\n",
-    "DECIMAL_COLS = {\n",
-    "    \"Open\": \"{:.2f}\",\n",
-    "    \"Trigger\": \"{:.2f}\",\n",
-    "    \"TGT\": \"{:.2f}\",\n",
-    "    \"SL\": \"{:.2f}\",\n",
-    "    \"LTP\": \"{:.2f}\",\n",
-    "    \"Away %\": \"{:.2f}%\",\n",
-    "    \"Chg%\": \"{:.2f}\"\n",
-    "}\n",
-    "\n",
-    "\n",
-    "def style_away_percent(value):\n",
-    "    try:\n",
-    "        value = float(value)\n",
-    "        if value >= 100:\n",
-    "            return \"background-color: darkgreen; color: white; font-weight: bold;\"\n",
-    "        elif value >= 90:\n",
-    "            return \"background-color: lightgreen; color: black; font-weight: bold;\"\n",
-    "    except Exception:\n",
-    "        pass\n",
-    "    return \"\"\n",
-    "\n",
-    "\n",
-    "def style_breakout(value):\n",
-    "    if value == \"✅\":\n",
-    "        return \"background-color: gold; color: black; font-weight: bold; text-align: center;\"\n",
-    "    return \"text-align: center; color: #999;\"\n",
-    "\n",
-    "\n",
-    "# Static column tints so Trigger / TGT / SL are visually distinct at a\n",
-    "# glance, AND so CE vs PE tables don't look identical to each other.\n",
-    "# CE side uses blue/green/red; PE side uses a deeper purple/teal/amber\n",
-    "# so the two panels are instantly distinguishable even without reading\n",
-    "# the \"Calls (CE)\" / \"Puts (PE)\" labels.\n",
-    "CE_COLUMN_TINTS = {\n",
-    "    \"Trigger\": {\"background-color\": \"#E3F2FD\", \"color\": \"#0D47A1\", \"font-weight\": \"600\"},\n",
-    "    \"TGT\": {\"background-color\": \"#E8F5E9\", \"color\": \"#1B5E20\", \"font-weight\": \"600\"},\n",
-    "    \"SL\": {\"background-color\": \"#FFEBEE\", \"color\": \"#B71C1C\", \"font-weight\": \"600\"},\n",
-    "}\n",
-    "\n",
-    "PE_COLUMN_TINTS = {\n",
-    "    \"Trigger\": {\"background-color\": \"#EDE7F6\", \"color\": \"#4527A0\", \"font-weight\": \"600\"},\n",
-    "    \"TGT\": {\"background-color\": \"#E0F2F1\", \"color\": \"#00695C\", \"font-weight\": \"600\"},\n",
-    "    \"SL\": {\"background-color\": \"#FFF3E0\", \"color\": \"#E65100\", \"font-weight\": \"600\"},\n",
-    "}\n",
-    "\n",
-    "\n",
-    "def apply_column_tints(styler, tints):\n",
-    "    for col, css in tints.items():\n",
-    "        styler = styler.set_properties(subset=[col], **css)\n",
-    "    return styler\n",
-    "\n",
-    "\n",
-    "def show_side_by_side(ce_table, pe_table):\n",
-    "    last_updated = datetime.now(IST).strftime(\"%H:%M:%S\")\n",
-    "    st.caption(f\"Last Updated: {last_updated} IST\")\n",
-    "\n",
-    "    col1, col2 = st.columns(2)\n",
-    "\n",
-    "    with col1:\n",
-    "        st.markdown(\"**Calls (CE)**\")\n",
-    "        if ce_table.empty:\n",
-    "            st.info(\"No CE data available.\")\n",
-    "        else:\n",
-    "            ce_style = (\n",
-    "                ce_table.style\n",
-    "                .background_gradient(subset=[\"Chg%\"], cmap=\"Greens\")\n",
-    "                .map(style_away_percent, subset=[\"Away %\"])\n",
-    "                .map(style_breakout, subset=[\"Breakout\"])\n",
-    "                .pipe(apply_column_tints, CE_COLUMN_TINTS)\n",
-    "                .format(DECIMAL_COLS, na_rep=\"-\")\n",
-    "            )\n",
-    "            st.dataframe(\n",
-    "                ce_style,\n",
-    "                use_container_width=True,\n",
-    "                hide_index=True,\n",
-    "                height=table_height(ce_table)\n",
-    "            )\n",
-    "\n",
-    "    with col2:\n",
-    "        st.markdown(\"**Puts (PE)**\")\n",
-    "        if pe_table.empty:\n",
-    "            st.info(\"No PE data available.\")\n",
-    "        else:\n",
-    "            pe_style = (\n",
-    "                pe_table.style\n",
-    "                .background_gradient(subset=[\"Chg%\"], cmap=\"Reds\")\n",
-    "                .map(style_away_percent, subset=[\"Away %\"])\n",
-    "                .map(style_breakout, subset=[\"Breakout\"])\n",
-    "                .pipe(apply_column_tints, PE_COLUMN_TINTS)\n",
-    "                .format(DECIMAL_COLS, na_rep=\"-\")\n",
-    "            )\n",
-    "            st.dataframe(\n",
-    "                pe_style,\n",
-    "                use_container_width=True,\n",
-    "                hide_index=True,\n",
-    "                height=table_height(pe_table)\n",
-    "            )\n",
-    "\n",
-    "\n",
-    "# ---------------------------------------------------------------------\n",
-    "# App entry point\n",
-    "# ---------------------------------------------------------------------\n",
-    "def main():\n",
-    "    st.title(\"Intraday Scanner — ORB Breakout\")\n",
-    "\n",
-    "    (\n",
-    "        access_token,\n",
-    "        expiry_choice,\n",
-    "        refresh_clicked,\n",
-    "        download_clicked,\n",
-    "        auto_refresh_enabled,\n",
-    "        refresh_interval,\n",
-    "        telegram_enabled,\n",
-    "        telegram_bot_token,\n",
-    "        telegram_chat_id,\n",
-    "        test_telegram_clicked,\n",
-    "        reset_alert_state_clicked\n",
-    "    ) = render_sidebar()\n",
-    "\n",
-    "    if auto_refresh_enabled and AUTOREFRESH_AVAILABLE:\n",
-    "        st_autorefresh(interval=refresh_interval * 1000, key=\"scanner_autorefresh\")\n",
-    "\n",
-    "    if reset_alert_state_clicked:\n",
-    "        st.session_state[\"orb_alert_state\"] = set()\n",
-    "        st.sidebar.info(\"Alert state cleared — confirmed breakouts will alert again.\")\n",
-    "\n",
-    "    if test_telegram_clicked:\n",
-    "        success, error = send_telegram_alert(\n",
-    "            telegram_bot_token,\n",
-    "            telegram_chat_id,\n",
-    "            \"✅ Test alert from Intraday Scanner — Telegram is wired up correctly.\"\n",
-    "        )\n",
-    "        if success:\n",
-    "            st.sidebar.success(\"Test message sent — check Telegram.\")\n",
-    "        else:\n",
-    "            st.sidebar.error(f\"Test message failed: {error}\")\n",
-    "\n",
-    "    if download_clicked:\n",
-    "        with st.spinner(\"Downloading latest NSE instrument JSON...\"):\n",
-    "            resp = requests.get(INSTRUMENT_URL)\n",
-    "\n",
-    "            if resp.status_code == 200:\n",
-    "                st.sidebar.download_button(\n",
-    "                    label=\"Save instruments.json.gz\",\n",
-    "                    data=resp.content,\n",
-    "                    file_name=\"NSE_instruments.json.gz\",\n",
-    "                    mime=\"application/gzip\"\n",
-    "                )\n",
-    "            else:\n",
-    "                st.sidebar.error(f\"Download failed: {resp.status_code}\")\n",
-    "\n",
-    "    should_fetch = refresh_clicked or (auto_refresh_enabled and access_token)\n",
-    "\n",
-    "    if should_fetch:\n",
-    "        if not access_token:\n",
-    "            st.warning(\"Enter your Upstox Access Token in the sidebar first.\")\n",
-    "            return\n",
-    "\n",
-    "        with st.spinner(\"Fetching latest data...\"):\n",
-    "            ce_table, pe_table = build_open_strike_scanner(\n",
-    "                access_token, expiry_choice, top_n=20\n",
-    "            )\n",
-    "\n",
-    "        if not ce_table.empty or not pe_table.empty:\n",
-    "            st.session_state[\"ce_table\"] = ce_table\n",
-    "            st.session_state[\"pe_table\"] = pe_table\n",
-    "\n",
-    "            # Check for confirmed ORB breakouts and alert on Telegram,\n",
-    "            # once per symbol, only for the newly-confirmed ones.\n",
-    "            if telegram_enabled:\n",
-    "                combined = pd.concat([ce_table, pe_table], ignore_index=True)\n",
-    "                check_and_alert_orb_breakouts(combined, telegram_bot_token, telegram_chat_id)\n",
-    "\n",
-    "    if \"ce_table\" in st.session_state:\n",
-    "        show_side_by_side(st.session_state[\"ce_table\"], st.session_state[\"pe_table\"])\n",
-    "    else:\n",
-    "        st.info(\"Enter your access token and click **Refresh LTP Now** to load data.\")\n",
-    "\n",
-    "\n",
-    "if __name__ == \"__main__\":\n",
-    "    main()"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "63e7393d-5a11-4b44-a459-64da8faffffb",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.10.11"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
+
+    futures, options = load_nse_fo_instruments()
+    expiry = get_expiry_for_choice(futures, expiry_choice)
+
+    if expiry is None:
+        st.error("No futures expiry found")
+        return pd.DataFrame(), pd.DataFrame()
+
+    futures = futures[futures["expiry_date"] == expiry].copy()
+    options = options[options["expiry_date"] == expiry].copy()
+
+    st.caption(f"Expiry: {expiry}  |  Stock futures: {len(futures)}")
+
+    # -----------------------------------------------------------------
+    # Futures Open (for ATM strike selection)
+    # -----------------------------------------------------------------
+    fut_quotes, ohlc_raw_sample = fetch_future_open_v3(futures["instrument_key"].tolist(), headers)
+
+    if fut_quotes.empty:
+        st.error("No futures open data received")
+        return pd.DataFrame(), pd.DataFrame()
+
+    futures = futures.merge(fut_quotes, on="instrument_key", how="left")
+    futures = futures.dropna(subset=["future_open"])
+
+    if futures.empty:
+        st.error(
+            "All futures were dropped after the Open-price fetch "
+            "(future_open came back empty/NaN for every instrument)."
+        )
+        with st.expander("⚠️ Raw OHLC API response sample — diagnostics", expanded=True):
+            st.write(
+                "This is exactly what Upstox returned for the first couple "
+                "of futures instruments requested:"
+            )
+            st.json(ohlc_raw_sample if ohlc_raw_sample else {"note": "response 'data' was empty"})
+        return pd.DataFrame(), pd.DataFrame()
+
+    # -----------------------------------------------------------------
+    # Select nearest CE/PE for each future
+    # -----------------------------------------------------------------
+    selected_rows = []
+
+    for _, fut in futures.iterrows():
+        ce = nearest_option(options, fut["underlying_key"], expiry, "CE", fut["future_open"])
+        pe = nearest_option(options, fut["underlying_key"], expiry, "PE", fut["future_open"])
+
+        for opt in [ce, pe]:
+            if opt is None:
+                continue
+
+            selected_rows.append({
+                "underlying_symbol": fut["underlying_symbol"],
+                "strike": opt["strike_price"],
+                "option_type": opt["instrument_type"],
+                "option_key": opt["instrument_key"],
+                "Open": fut["future_open"],
+                "Lot": opt["lot_size"]
+            })
+
+    selected = pd.DataFrame(selected_rows)
+
+    if selected.empty:
+        # Diagnostics: figure out WHY nothing matched instead of
+        # just saying "No CE/PE options found" with no way to tell why.
+        fut_keys = set(futures["underlying_key"].dropna().unique())
+        opt_keys = set(options["underlying_key"].dropna().unique())
+        overlap = fut_keys & opt_keys
+
+        st.error("No CE/PE options found")
+        with st.expander("⚠️ Why no options matched — diagnostics", expanded=True):
+            st.write(f"Futures rows (with valid Open): {len(futures)}")
+            st.write(f"Options rows for this expiry: {len(options)}")
+            st.write(f"Distinct underlying_key in futures: {len(fut_keys)}")
+            st.write(f"Distinct underlying_key in options: {len(opt_keys)}")
+            st.write(f"Overlapping underlying_key between the two: {len(overlap)}")
+            st.write("Sample futures underlying_key values:", sorted(list(fut_keys))[:5])
+            st.write("Sample options underlying_key values:", sorted(list(opt_keys))[:5])
+            if len(overlap) == 0 and fut_keys and opt_keys:
+                st.write(
+                    "**No overlap at all** — the two dataframes are keyed "
+                    "differently (e.g. one is empty, or the underlying_key "
+                    "format differs). This is the actual bug to chase."
+                )
+        return pd.DataFrame(), pd.DataFrame()
+
+    # -----------------------------------------------------------------
+    # Option LTP (live, every refresh)
+    # -----------------------------------------------------------------
+    option_quotes = fetch_ltp_v3(selected["option_key"].tolist(), headers)
+
+    if option_quotes.empty:
+        st.error("No option quote data received")
+        return pd.DataFrame(), pd.DataFrame()
+
+    option_quotes = option_quotes.drop_duplicates("instrument_key")
+
+    selected = selected.merge(
+        option_quotes,
+        left_on="option_key",
+        right_on="instrument_key",
+        how="left"
+    )
+    selected = selected.drop(columns=["instrument_key"])
+
+    # -----------------------------------------------------------------
+    # Symbol / Chg% / Ctr / Capital — computed first, since ranking by
+    # Chg% only needs LTP data (already have it), not ORB levels.
+    # -----------------------------------------------------------------
+    selected["Symbol"] = (
+        selected["underlying_symbol"].astype(str)
+        + " "
+        + selected["strike"].astype(int).astype(str)
+        + " "
+        + selected["option_type"].astype(str)
+    )
+
+    selected["Chg%"] = np.where(
+        selected["prev_close"] > 0,
+        ((selected["ltp"] - selected["prev_close"]) / selected["prev_close"]) * 100,
+        np.nan
+    )
+
+    selected["Ctr"] = np.where(
+        selected["Lot"] > 0,
+        selected["volume"] / selected["Lot"],
+        np.nan
+    )
+
+    selected["Capital"] = selected["ltp"] * selected["Lot"]
+
+    selected = selected.rename(columns={
+        "ltp": "LTP",
+        "volume": "Vol",
+        "Capital": "Capital Required"
+    })
+
+    # -----------------------------------------------------------------
+    # Rank down to only what will actually be shown (top_n CE + top_n
+    # PE) BEFORE fetching ORB levels. The intraday candle endpoint is
+    # one request per instrument — fetching it for all ~400 candidates
+    # when only ~40 get displayed would trip Upstox's rate limits.
+    # -----------------------------------------------------------------
+    ce_candidates = (
+        selected[selected["Symbol"].str.endswith("CE")]
+        .sort_values("Chg%", ascending=False)
+        .head(top_n)
+    )
+    pe_candidates = (
+        selected[selected["Symbol"].str.endswith("PE")]
+        .sort_values("Chg%", ascending=False)
+        .head(top_n)
+    )
+    shortlisted = pd.concat([ce_candidates, pe_candidates], ignore_index=True)
+
+    # -----------------------------------------------------------------
+    # ORB levels — first-hour High as Trigger, TGT/SL derived from it,
+    # and breakout confirmation per the crossing-candle low rule.
+    # -----------------------------------------------------------------
+    orb_map, orb_errors = fetch_orb_map(
+        tuple(sorted(shortlisted["option_key"].unique())),
+        tuple(headers.items())
+    )
+
+    def _orb_field(option_key, field, default=None):
+        info = orb_map.get(option_key)
+        return info.get(field, default) if info else default
+
+    shortlisted["Trigger"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "trigger"))
+    shortlisted["TGT"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "tgt"))
+    shortlisted["SL"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "sl"))
+    shortlisted["BreakoutConfirmed"] = shortlisted["option_key"].apply(
+        lambda k: bool(_orb_field(k, "breakout_confirmed", False))
+    )
+
+    shortlisted["Trigger"] = pd.to_numeric(shortlisted["Trigger"], errors="coerce")
+
+    missing_count = shortlisted["Trigger"].isna().sum()
+    total_count = len(shortlisted)
+
+    if missing_count > 0:
+        with st.expander(
+            f"⚠️ ORB Trigger not yet available for {missing_count}/{total_count} options — click for details",
+            expanded=(missing_count == total_count)
+        ):
+            st.write(
+                "This is normal before the first hourly candle (9:15-10:15 IST) "
+                "has any data, or if Upstox hasn't returned candles yet."
+            )
+            if orb_errors:
+                st.write("Sample errors from the intraday candle API:")
+                for err in orb_errors:
+                    st.code(err)
+
+    shortlisted["Breakout"] = np.where(shortlisted["BreakoutConfirmed"], "✅", "—")
+
+    shortlisted["Away %"] = np.where(
+        shortlisted["Trigger"] > 0,
+        (shortlisted["LTP"] / shortlisted["Trigger"]) * 100,
+        np.nan
+    )
+    shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
+
+    # -----------------------------------------------------------------
+    # Final column order: Symbol, Open, LTP, Trigger, Away%, TGT, SL,
+    # Breakout, Chg%, Vol, Lot, Ctr, Capital Required.
+    # -----------------------------------------------------------------
+    result = shortlisted[[
+        "Symbol",
+        "Open",
+        "LTP",
+        "Trigger",
+        "Away %",
+        "TGT",
+        "SL",
+        "Breakout",
+        "Chg%",
+        "Vol",
+        "Lot",
+        "Ctr",
+        "Capital Required"
+    ]].copy()
+
+    for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Chg%"]:
+        result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
+
+    result["Vol"] = pd.to_numeric(result["Vol"], errors="coerce").fillna(0).astype(int)
+    result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
+    result["Ctr"] = pd.to_numeric(result["Ctr"], errors="coerce").round(0).astype("Int64")
+    result["Capital Required"] = pd.to_numeric(
+        result["Capital Required"], errors="coerce"
+    ).round(0).fillna(0).astype(int)
+
+    ce_table = (
+        result[result["Symbol"].str.endswith("CE")]
+        .sort_values("Away %", ascending=False, na_position="last")
+        .reset_index(drop=True)
+    )
+
+    pe_table = (
+        result[result["Symbol"].str.endswith("PE")]
+        .sort_values("Away %", ascending=False, na_position="last")
+        .reset_index(drop=True)
+    )
+
+    return ce_table, pe_table
+
+
+# ---------------------------------------------------------------------
+# Display
+# ---------------------------------------------------------------------
+def table_height(df, row_px=35, header_px=38, max_px=900):
+    return min(header_px + row_px * max(len(df), 1) + 3, max_px)
+
+
+DECIMAL_COLS = {
+    "Open": "{:.2f}",
+    "Trigger": "{:.2f}",
+    "TGT": "{:.2f}",
+    "SL": "{:.2f}",
+    "LTP": "{:.2f}",
+    "Away %": "{:.2f}%",
+    "Chg%": "{:.2f}"
 }
+
+
+def style_away_percent(value):
+    try:
+        value = float(value)
+        if value >= 100:
+            return "background-color: darkgreen; color: white; font-weight: bold;"
+        elif value >= 90:
+            return "background-color: lightgreen; color: black; font-weight: bold;"
+    except Exception:
+        pass
+    return ""
+
+
+def style_breakout(value):
+    if value == "✅":
+        return "background-color: gold; color: black; font-weight: bold; text-align: center;"
+    return "text-align: center; color: #999;"
+
+
+# Static column tints so Trigger / TGT / SL are visually distinct at a
+# glance, AND so CE vs PE tables don't look identical to each other.
+# CE side uses blue/green/red; PE side uses a deeper purple/teal/amber
+# so the two panels are instantly distinguishable even without reading
+# the "Calls (CE)" / "Puts (PE)" labels.
+CE_COLUMN_TINTS = {
+    "Trigger": {"background-color": "#E3F2FD", "color": "#0D47A1", "font-weight": "600"},
+    "TGT": {"background-color": "#E8F5E9", "color": "#1B5E20", "font-weight": "600"},
+    "SL": {"background-color": "#FFEBEE", "color": "#B71C1C", "font-weight": "600"},
+}
+
+PE_COLUMN_TINTS = {
+    "Trigger": {"background-color": "#EDE7F6", "color": "#4527A0", "font-weight": "600"},
+    "TGT": {"background-color": "#E0F2F1", "color": "#00695C", "font-weight": "600"},
+    "SL": {"background-color": "#FFF3E0", "color": "#E65100", "font-weight": "600"},
+}
+
+
+def apply_column_tints(styler, tints):
+    for col, css in tints.items():
+        styler = styler.set_properties(subset=[col], **css)
+    return styler
+
+
+def show_side_by_side(ce_table, pe_table):
+    last_updated = datetime.now(IST).strftime("%H:%M:%S")
+    st.caption(f"Last Updated: {last_updated} IST")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Calls (CE)**")
+        if ce_table.empty:
+            st.info("No CE data available.")
+        else:
+            ce_style = (
+                ce_table.style
+                .background_gradient(subset=["Chg%"], cmap="Greens")
+                .map(style_away_percent, subset=["Away %"])
+                .map(style_breakout, subset=["Breakout"])
+                .pipe(apply_column_tints, CE_COLUMN_TINTS)
+                .format(DECIMAL_COLS, na_rep="-")
+            )
+            st.dataframe(
+                ce_style,
+                use_container_width=True,
+                hide_index=True,
+                height=table_height(ce_table)
+            )
+
+    with col2:
+        st.markdown("**Puts (PE)**")
+        if pe_table.empty:
+            st.info("No PE data available.")
+        else:
+            pe_style = (
+                pe_table.style
+                .background_gradient(subset=["Chg%"], cmap="Reds")
+                .map(style_away_percent, subset=["Away %"])
+                .map(style_breakout, subset=["Breakout"])
+                .pipe(apply_column_tints, PE_COLUMN_TINTS)
+                .format(DECIMAL_COLS, na_rep="-")
+            )
+            st.dataframe(
+                pe_style,
+                use_container_width=True,
+                hide_index=True,
+                height=table_height(pe_table)
+            )
+
+
+# ---------------------------------------------------------------------
+# App entry point
+# ---------------------------------------------------------------------
+def main():
+    st.title("Intraday Scanner — ORB Breakout")
+
+    (
+        access_token,
+        expiry_choice,
+        refresh_clicked,
+        download_clicked,
+        auto_refresh_enabled,
+        refresh_interval,
+        telegram_enabled,
+        telegram_bot_token,
+        telegram_chat_id,
+        test_telegram_clicked,
+        reset_alert_state_clicked
+    ) = render_sidebar()
+
+    if auto_refresh_enabled and AUTOREFRESH_AVAILABLE:
+        st_autorefresh(interval=refresh_interval * 1000, key="scanner_autorefresh")
+
+    if reset_alert_state_clicked:
+        st.session_state["orb_alert_state"] = set()
+        st.sidebar.info("Alert state cleared — confirmed breakouts will alert again.")
+
+    if test_telegram_clicked:
+        success, error = send_telegram_alert(
+            telegram_bot_token,
+            telegram_chat_id,
+            "✅ Test alert from Intraday Scanner — Telegram is wired up correctly."
+        )
+        if success:
+            st.sidebar.success("Test message sent — check Telegram.")
+        else:
+            st.sidebar.error(f"Test message failed: {error}")
+
+    if download_clicked:
+        with st.spinner("Downloading latest NSE instrument JSON..."):
+            resp = requests.get(INSTRUMENT_URL)
+
+            if resp.status_code == 200:
+                st.sidebar.download_button(
+                    label="Save instruments.json.gz",
+                    data=resp.content,
+                    file_name="NSE_instruments.json.gz",
+                    mime="application/gzip"
+                )
+            else:
+                st.sidebar.error(f"Download failed: {resp.status_code}")
+
+    should_fetch = refresh_clicked or (auto_refresh_enabled and access_token)
+
+    if should_fetch:
+        if not access_token:
+            st.warning("Enter your Upstox Access Token in the sidebar first.")
+            return
+
+        with st.spinner("Fetching latest data..."):
+            ce_table, pe_table = build_open_strike_scanner(
+                access_token, expiry_choice, top_n=20
+            )
+
+        if not ce_table.empty or not pe_table.empty:
+            st.session_state["ce_table"] = ce_table
+            st.session_state["pe_table"] = pe_table
+
+            # Check for confirmed ORB breakouts and alert on Telegram,
+            # once per symbol, only for the newly-confirmed ones.
+            if telegram_enabled:
+                combined = pd.concat([ce_table, pe_table], ignore_index=True)
+                check_and_alert_orb_breakouts(combined, telegram_bot_token, telegram_chat_id)
+
+    if "ce_table" in st.session_state:
+        show_side_by_side(st.session_state["ce_table"], st.session_state["pe_table"])
+    else:
+        st.info("Enter your access token and click **Refresh LTP Now** to load data.")
+
+
+if __name__ == "__main__":
+    main()
