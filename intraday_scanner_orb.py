@@ -345,6 +345,11 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
 #   A later hourly candle that pokes above 150 but whose low drops to
 #   120 does NOT count as a confirmed breakout (it undercut SL).
 #
+#   FIRST-HOUR RANGE FILTER: the opening hour's own range
+#   ((High - Low) / Low x 100) must be BELOW 25%. If the first hour
+#   itself was too wild, the ORB level is considered unreliable and
+#   that strike is skipped entirely (no Trigger/TGT/SL computed).
+#
 # Uses Upstox's intraday historical-candle endpoint (unit=hours,
 # interval=1), which returns today's hourly candles including the
 # currently-forming one. Cached for a short 15s TTL per refresh cycle
@@ -373,10 +378,25 @@ def _fetch_single_orb_data(instrument_key, headers):
         candles_sorted = sorted(candles, key=lambda c: c[0])
 
         first_hour = candles_sorted[0]
-        trigger = first_hour[2]  # high of the first 1-hour candle
+        first_hour_high = first_hour[2]
+        first_hour_low = first_hour[3]
+        trigger = first_hour_high  # high of the first 1-hour candle
 
         if trigger in (None, 0):
             return instrument_key, None, "First-hour candle has no valid high"
+
+        if first_hour_low in (None, 0):
+            return instrument_key, None, "First-hour candle has no valid low"
+
+        # First-hour range filter: skip this strike entirely if the
+        # opening hour itself moved 25% or more - too wild to trust
+        # as a breakout reference level.
+        first_hour_range_pct = ((first_hour_high - first_hour_low) / first_hour_low) * 100
+
+        if first_hour_range_pct >= 25:
+            return instrument_key, None, (
+                f"First-hour range {first_hour_range_pct:.2f}% >= 25% - skipped (ORB filter)"
+            )
 
         tgt = trigger * 1.30
         sl = trigger * 0.85
@@ -397,6 +417,7 @@ def _fetch_single_orb_data(instrument_key, headers):
             "breakout_confirmed": breakout_candle is not None,
             "breakout_time": breakout_candle[0] if breakout_candle else None,
             "first_hour_complete": len(candles_sorted) >= 2,
+            "first_hour_range_pct": first_hour_range_pct,
         }
         return instrument_key, info, None
 
