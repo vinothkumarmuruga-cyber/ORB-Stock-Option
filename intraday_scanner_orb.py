@@ -717,7 +717,10 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
 
     # -----------------------------------------------------------------
     # Final column order: Symbol, Open, LTP, Trigger, Away%, TGT, SL,
-    # Breakout, Chg%, Vol, Lot, Ctr, Capital Required.
+    # Breakout, Vol, Lot, Capital Required.
+    # Chg% and Ctr are still computed above (Chg% drives the top_n
+    # shortlist ranking) but are intentionally left out of the table
+    # that's actually shown to the user.
     # -----------------------------------------------------------------
     result = shortlisted[[
         "Symbol",
@@ -728,19 +731,16 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
         "TGT",
         "SL",
         "Breakout",
-        "Chg%",
         "Vol",
         "Lot",
-        "Ctr",
         "Capital Required"
     ]].copy()
 
-    for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Chg%"]:
+    for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %"]:
         result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
 
     result["Vol"] = pd.to_numeric(result["Vol"], errors="coerce").fillna(0).astype(int)
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
-    result["Ctr"] = pd.to_numeric(result["Ctr"], errors="coerce").round(0).astype("Int64")
     result["Capital Required"] = pd.to_numeric(
         result["Capital Required"], errors="coerce"
     ).round(0).fillna(0).astype(int)
@@ -774,7 +774,6 @@ DECIMAL_COLS = {
     "SL": "{:.2f}",
     "LTP": "{:.2f}",
     "Away %": "{:.2f}%",
-    "Chg%": "{:.2f}"
 }
 
 
@@ -833,7 +832,6 @@ def show_side_by_side(ce_table, pe_table):
         else:
             ce_style = (
                 ce_table.style
-                .background_gradient(subset=["Chg%"], cmap="Greens")
                 .map(style_away_percent, subset=["Away %"])
                 .map(style_breakout, subset=["Breakout"])
                 .pipe(apply_column_tints, CE_COLUMN_TINTS)
@@ -853,7 +851,6 @@ def show_side_by_side(ce_table, pe_table):
         else:
             pe_style = (
                 pe_table.style
-                .background_gradient(subset=["Chg%"], cmap="Reds")
                 .map(style_away_percent, subset=["Away %"])
                 .map(style_breakout, subset=["Breakout"])
                 .pipe(apply_column_tints, PE_COLUMN_TINTS)
