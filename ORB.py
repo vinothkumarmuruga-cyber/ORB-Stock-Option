@@ -16,7 +16,7 @@ except ImportError:
 INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
 IST = ZoneInfo("Asia/Kolkata")
 
-st.set_page_config(page_title="Intraday Scanner", layout="wide")
+st.set_page_config(page_title="ORB 1 hour", layout="wide")
 
 # ---------------------------------------------------------------------
 # Tighten top spacing so the page starts higher / uses space better
