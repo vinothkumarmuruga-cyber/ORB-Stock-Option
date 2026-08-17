@@ -393,7 +393,7 @@ def _fetch_single_orb_data(instrument_key, headers):
         # as a breakout reference level.
         first_hour_range_pct = ((first_hour_high - first_hour_low) / first_hour_low) * 100
 
-        if first_hour_range_pct >= 50:
+        if first_hour_range_pct >= 70:
             return instrument_key, None, (
                 f"First-hour range {first_hour_range_pct:.2f}% >= 25% - skipped (ORB filter)"
             )
