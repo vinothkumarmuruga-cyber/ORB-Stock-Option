@@ -1,148 +1,473 @@
-import requests
+import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit as st
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
-from urllib.parse import quote
+import requests
+import math
+import os
+import time
+import gzip
+import shutil
+import json
+import re
+from datetime import date, datetime, timedelta, timezone
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import zipfile
+from urllib.parse import quote
 
-try:
-    from streamlit_autorefresh import st_autorefresh
-    AUTOREFRESH_AVAILABLE = True
-except ImportError:
-    AUTOREFRESH_AVAILABLE = False
+# ============================================================
+# IST
+# ============================================================
 
-INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
-IST = ZoneInfo("Asia/Kolkata")
+IST_OFFSET = timedelta(hours=5, minutes=30)
+IST = timezone(IST_OFFSET)
 
-st.set_page_config(page_title="ORB 1HR Scanner", layout="wide")
 
-# ---------------------------------------------------------------------
-# Tighten top spacing so the page starts higher / uses space better
-# ---------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-        .block-container {
-            padding-top: 1.2rem;
-            padding-bottom: 1rem;
-        }
-        div[data-testid="stVerticalBlock"] > div:has(> .element-container) {
-            gap: 0.4rem;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True
+def get_ist_now():
+    return datetime.now(IST)
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="Stock Option Scanner",
+    layout="wide"
 )
 
 
-# ---------------------------------------------------------------------
-# Sidebar UI
-# ---------------------------------------------------------------------
-def render_sidebar():
-    st.sidebar.header("Configuration")
+# ============================================================
+# CUSTOM CSS
+# ============================================================
 
-    access_token = st.sidebar.text_input(
-        "Upstox Access Token",
-        type="password",
-        value=st.session_state.get("access_token", ""),
-        key="access_token"
-    )
+st.markdown("""
+    <style>
 
-    st.sidebar.divider()
-    st.sidebar.header("Expiry Settings")
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+        }
 
-    expiry_choice = st.sidebar.radio(
-        "Select Expiry Month",
-        options=["Current Month", "Next Month"],
-        index=0,
-        key="expiry_choice",
-        help="Choose whether to scan the current month's or next month's F&O expiry."
-    )
+        h1 {
+            font-size: 1.8rem !important;
+            margin-bottom: 0rem !important;
+            white-space: nowrap !important;
+        }
 
-    st.sidebar.divider()
-    st.sidebar.header("Auto Refresh")
+        h2 {
+            font-size: 1.1rem !important;
+            padding-top: 0.2rem !important;
+            margin-bottom: 0.1rem !important;
+        }
 
-    auto_refresh_enabled = st.sidebar.checkbox(
-        "Enable Auto-Refresh",
-        value=st.session_state.get("auto_refresh_enabled", False),
-        key="auto_refresh_enabled"
-    )
+        h3 {
+            font-size: 1.0rem !important;
+            padding-top: 0.1rem !important;
+            margin-bottom: 0.1rem !important;
+        }
 
-    refresh_interval = st.sidebar.slider(
-        "Refresh Interval (seconds)",
-        min_value=1,
-        max_value=60,
-        value=st.session_state.get("refresh_interval", 15),
-        step=1,
-        key="refresh_interval"
-    )
+        /* Tabs */
 
-    if auto_refresh_enabled and not AUTOREFRESH_AVAILABLE:
-        st.sidebar.error(
-            "Auto-refresh needs the `streamlit-autorefresh` package.\n\n"
-            "Add `streamlit-autorefresh` to requirements.txt and redeploy."
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            height: 45px;
+            white-space: pre-wrap;
+            background-color: #f0f2f6;
+            border-radius: 5px;
+            padding: 10px 20px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border: 1px solid #d6d6d6;
+        }
+
+        .stTabs [aria-selected="true"] {
+            background-color: #007bff;
+            color: white !important;
+            border-color: #007bff;
+        }
+
+        /* Prevent graying during refresh */
+
+        .stApp {
+            transition: none !important;
+        }
+
+        [data-testid="stAppViewContainer"],
+        [data-testid="stHeader"] {
+            opacity: 1 !important;
+            transition: none !important;
+        }
+
+        /* Hide uploader instructions */
+
+        [data-testid="stFileUploaderDropzone"] div div span {
+            display: none !important;
+        }
+
+        [data-testid="stFileUploaderDropzone"] div div small {
+            display: none !important;
+        }
+
+        /* Dataframe */
+
+        div[data-testid="stDataFrame"] {
+            font-weight: 600 !important;
+        }
+
+    </style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# PERSISTENT STORAGE
+# ============================================================
+
+DATA_DIR = "data"
+
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+
+BLACKLIST_FILE = os.path.join(DATA_DIR, "blacklist.json")
+TOKEN_FILE = os.path.join(DATA_DIR, "token.json")
+META_FILE = os.path.join(DATA_DIR, "meta.json")
+LTP_CACHE_FILE = os.path.join(DATA_DIR, "ltp_cache.json")
+TRIGGER_ALERT_FILE = os.path.join(DATA_DIR, "trigger_alert_state.json")
+
+
+FILES = {
+    "Monthly": os.path.join(DATA_DIR, "monthly.csv"),
+    "Weekly": os.path.join(DATA_DIR, "weekly.csv"),
+    "Intraday": os.path.join(DATA_DIR, "intraday.csv")
+}
+
+
+# ============================================================
+# PRIORITY / HIGHLIGHT SETTINGS (visual band only, no reordering)
+# ============================================================
+
+PRIORITY_MIN = 90.0
+PRIORITY_MAX = 110.0
+
+
+# ============================================================
+# META
+# ============================================================
+
+def load_meta():
+    if os.path.exists(META_FILE):
+        try:
+            with open(META_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+
+def save_meta(key, date_str):
+    try:
+        meta = load_meta()
+        meta[key] = date_str
+        with open(META_FILE, "w") as f:
+            json.dump(meta, f)
+    except:
+        pass
+
+
+# ============================================================
+# LTP CACHE (bhavcopy tabs)
+# ============================================================
+
+def load_ltp_cache():
+    if os.path.exists(LTP_CACHE_FILE):
+        try:
+            with open(LTP_CACHE_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+
+def save_ltp_cache(new_data):
+    try:
+        cache = load_ltp_cache()
+        cache.update(new_data)
+        with open(LTP_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+    except:
+        pass
+
+
+# ============================================================
+# DATE FROM FILE NAME
+# ============================================================
+
+def extract_date_from_filename(filename):
+    match = re.search(r"(\d{8})", filename)
+    if match:
+        d = match.group(1)
+        return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    return None
+
+
+# ============================================================
+# ZIP -> CSV
+# ============================================================
+
+def extract_csv_from_zip(zip_file):
+    try:
+        with zipfile.ZipFile(zip_file) as z:
+            csv_files = [f for f in z.namelist() if f.lower().endswith(".csv")]
+            if not csv_files:
+                st.error("No CSV file found in the ZIP archive.")
+                return None, None
+            csv_filename = csv_files[0]
+            with z.open(csv_filename) as f:
+                return f.read(), csv_filename
+    except Exception as e:
+        st.error(f"Error extracting ZIP file: {e}")
+        return None, None
+
+
+# ============================================================
+# TOKEN
+# ============================================================
+
+def load_token():
+    if os.path.exists(TOKEN_FILE):
+        try:
+            with open(TOKEN_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
+                    return data.get("token", "")
+        except:
+            pass
+    return ""
+
+
+def save_token(token):
+    try:
+        data = {
+            "date": get_ist_now().strftime("%Y-%m-%d"),
+            "token": token
+        }
+        with open(TOKEN_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
+
+
+# ============================================================
+# BLACKLIST (Intraday tab)
+# ============================================================
+
+def load_blacklist():
+    if os.path.exists(BLACKLIST_FILE):
+        try:
+            with open(BLACKLIST_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
+                    return set(data.get("keys", []))
+        except:
+            pass
+    return set()
+
+
+def save_blacklist(keys):
+    try:
+        data = {
+            "date": get_ist_now().strftime("%Y-%m-%d"),
+            "keys": list(keys)
+        }
+        with open(BLACKLIST_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
+
+
+# ============================================================
+# TELEGRAM TRIGGER-ALERT STATE (shared across ALL tabs)
+#
+# Persisted to disk so alert de-duplication survives restarts.
+# Resets automatically each new trading day. Each entry is
+# "<tab>:<id>" so Monthly / Weekly / Intraday / 1HR BO all
+# track their own alert history independently, but a single
+# Reset Alerts button in the sidebar clears everything at once.
+# ============================================================
+
+def load_trigger_alert_state():
+    if os.path.exists(TRIGGER_ALERT_FILE):
+        try:
+            with open(TRIGGER_ALERT_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
+                    return set(data.get("keys", []))
+        except:
+            pass
+    return set()
+
+
+def save_trigger_alert_state(keys):
+    try:
+        data = {
+            "date": get_ist_now().strftime("%Y-%m-%d"),
+            "keys": list(keys)
+        }
+        with open(TRIGGER_ALERT_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
+
+
+def send_telegram_alert(bot_token, chat_id, message):
+    if not bot_token or not chat_id:
+        return False, "Missing bot token or chat ID"
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            return True, None
+        return False, f"HTTP {response.status_code}: {response.text[:200]}"
+    except Exception as e:
+        return False, f"Exception: {e}"
+
+
+def check_and_alert_triggers(df, key_suffix, telegram_enabled, bot_token, chat_id):
+    """
+    Bhavcopy tabs (Monthly / Weekly / Intraday): alerts the moment
+    an option's change % (LTP / Trigger x 100) crosses 100%.
+    """
+    if not telegram_enabled:
+        return
+    if df.empty:
+        return
+    if "instrument_key" not in df.columns:
+        return
+
+    alerted = load_trigger_alert_state()
+    newly_triggered = []
+
+    for _, row in df.iterrows():
+        inst_key = row.get("instrument_key")
+        if not inst_key:
+            continue
+
+        alert_id = f"{key_suffix}:{inst_key}"
+
+        try:
+            change_pct = float(row.get("change %", 0.0))
+        except:
+            continue
+
+        if change_pct >= 100 and alert_id not in alerted:
+            newly_triggered.append(row)
+            alerted.add(alert_id)
+
+    if not newly_triggered:
+        return
+
+    message_lines = [f"🚀 <b>Trigger Crossed — {key_suffix}</b>"]
+    for row in newly_triggered:
+        message_lines.append(
+            f"\n<b>{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}</b>\n"
+            f"LTP: {row['ltp']:.2f}  ›  Trigger: {row['Trigger']:.2f}\n"
+            f"Change: {row['change %']:.2f}%"
         )
 
-    # -------------------------------------------------------------
-    # Telegram Alerts
-    # -------------------------------------------------------------
-    st.sidebar.divider()
-    st.sidebar.header("Telegram Alerts")
+    message = "\n".join(message_lines)
+    success, error = send_telegram_alert(bot_token, chat_id, message)
 
-    telegram_enabled = st.sidebar.checkbox(
-        "Enable Trigger-Cross Alerts",
-        value=st.session_state.get("telegram_enabled", False),
-        key="telegram_enabled",
-        help="Sends a Telegram message the moment an option's live price crosses its Trigger (first 1-hour candle high)."
-    )
-
-    telegram_bot_token = st.sidebar.text_input(
-        "Bot Token",
-        type="password",
-        value=st.session_state.get("telegram_bot_token", ""),
-        key="telegram_bot_token",
-        help="Create a bot via @BotFather on Telegram to get this token."
-    )
-
-    telegram_chat_id = st.sidebar.text_input(
-        "Chat ID",
-        value=st.session_state.get("telegram_chat_id", ""),
-        key="telegram_chat_id",
-        help="Your personal or group chat ID. Message @userinfobot to find yours."
-    )
-
-    tg_col1, tg_col2 = st.sidebar.columns(2)
-    test_telegram_clicked = tg_col1.button("Send Test", use_container_width=True)
-    reset_alert_state_clicked = tg_col2.button("Reset Alerts", use_container_width=True)
-
-    st.sidebar.divider()
-    st.sidebar.header("Data Management")
-
-    refresh_clicked = st.sidebar.button("⚡ Refresh LTP Now", use_container_width=True)
-
-    st.sidebar.subheader("NSE Instrument JSON")
-    download_clicked = st.sidebar.button("⬇️ Download Latest", use_container_width=True)
-
-    return (
-        access_token,
-        expiry_choice,
-        refresh_clicked,
-        download_clicked,
-        auto_refresh_enabled,
-        refresh_interval,
-        telegram_enabled,
-        telegram_bot_token,
-        telegram_chat_id,
-        test_telegram_clicked,
-        reset_alert_state_clicked
-    )
+    if success:
+        save_trigger_alert_state(alerted)
+        st.sidebar.success(f"Telegram alert sent for {len(newly_triggered)} trigger cross(es) on {key_suffix}.")
+    else:
+        st.sidebar.warning(f"Telegram alert failed: {error}")
 
 
-# ---------------------------------------------------------------------
-# Instrument / expiry helpers
-# ---------------------------------------------------------------------
+def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
+    """
+    1HR BO tab: alerts the moment an option's live LTP crosses its
+    Trigger (first 1-hour candle high). Uses the SAME persisted
+    alert-state file as the bhavcopy tabs (tagged "1HR BO:<symbol>").
+    """
+    if not telegram_enabled:
+        return
+    if df.empty:
+        return
+
+    alerted = load_trigger_alert_state()
+    newly_triggered = []
+
+    for _, row in df.iterrows():
+        symbol = row.get("Symbol")
+        if not symbol:
+            continue
+
+        alert_id = f"1HR BO:{symbol}"
+
+        if row.get("Breakout") == "✅" and alert_id not in alerted:
+            newly_triggered.append(row)
+            alerted.add(alert_id)
+
+    if not newly_triggered:
+        return
+
+    message_lines = ["🚀 <b>1HR BO — Trigger Crossed</b>"]
+    for row in newly_triggered:
+        message_lines.append(
+            f"\n<b>{row['Symbol']}</b>\n"
+            f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}"
+        )
+
+    message = "\n".join(message_lines)
+    success, error = send_telegram_alert(bot_token, chat_id, message)
+
+    if success:
+        save_trigger_alert_state(alerted)
+        st.sidebar.success(f"Telegram alert sent for {len(newly_triggered)} 1HR BO cross(es).")
+    else:
+        st.sidebar.warning(f"Telegram alert failed: {error}")
+
+
+# ============================================================
+# NSE JSON (local file — used by Monthly/Weekly/Intraday ATM match)
+# ============================================================
+
+NSE_JSON_PATH = "NSE.json"
+
+
+@st.cache_data
+def load_nse_json():
+    if os.path.exists(NSE_JSON_PATH):
+        try:
+            df = pd.read_json(NSE_JSON_PATH)
+            if "segment" in df.columns:
+                df = df[df["segment"] == "NSE_FO"]
+            df["expiry_dt"] = pd.to_datetime(df["expiry"], unit="ms").dt.normalize()
+            return df
+        except Exception as e:
+            st.error(f"Error loading NSE.json: {e}")
+            return pd.DataFrame()
+    else:
+        st.error(f"NSE.json not found at {NSE_JSON_PATH}")
+        return pd.DataFrame()
+
+
+# ============================================================
+# LIVE INSTRUMENT FILE (1HR BO tab — fetched directly from Upstox,
+# independent of the local NSE.json file above)
+# ============================================================
+
+LIVE_INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+
+
 def normalize_expiry(series):
     return pd.to_datetime(
         pd.to_numeric(series, errors="coerce"),
@@ -151,15 +476,9 @@ def normalize_expiry(series):
     ).dt.date
 
 
-def chunk_list(items, size=300):
-    items = list(items)
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
-
-
-@st.cache_data(ttl=3600, show_spinner="Loading instrument file...")
-def load_nse_fo_instruments():
-    instruments = pd.read_json(INSTRUMENT_URL, compression="gzip")
+@st.cache_data(ttl=3600, show_spinner="Loading live instrument file...")
+def load_live_fo_instruments():
+    instruments = pd.read_json(LIVE_INSTRUMENT_URL, compression="gzip")
     instruments["expiry_date"] = normalize_expiry(instruments["expiry"])
 
     futures = instruments[
@@ -195,14 +514,315 @@ def get_expiry_for_choice(df, choice):
     return valid[-1] if len(valid) > 1 else valid[0]
 
 
-# ---------------------------------------------------------------------
-# Quote fetchers (live data - refreshed every cycle)
-# ---------------------------------------------------------------------
+def chunk_list(items, size=300):
+    items = list(items)
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+# ============================================================
+# PROCESS BHAVCOPY (Monthly / Weekly / Intraday tabs)
+# ============================================================
+
+def process_bhavcopy(bhav_file, df_json, target_expiry_index=0):
+    try:
+        df_bhav = pd.read_csv(bhav_file)
+
+        required_cols = ["FinInstrmTp", "TckrSymb", "XpryDt", "ClsPric", "StrkPric", "OptnTp", "HghPric", "LwPric", "LastPric"]
+        if not all(col in df_bhav.columns for col in required_cols):
+            st.error(f"Uploaded file missing required columns: {required_cols}")
+            return pd.DataFrame()
+
+        futures = df_bhav[df_bhav["FinInstrmTp"].isin(["STF", "IDF"])].copy()
+        if futures.empty:
+            st.warning("No Futures data found in uploaded file.")
+            return pd.DataFrame()
+
+        futures["XpryDt"] = pd.to_datetime(futures["XpryDt"])
+
+        ist_now = get_ist_now()
+        today = ist_now.replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
+
+        futures = futures[futures["XpryDt"] >= today]
+        if futures.empty:
+            st.warning("No future expiries found in the uploaded file.")
+            return pd.DataFrame()
+
+        futures = futures.sort_values("XpryDt")
+        available_expiries = sorted(futures["XpryDt"].unique())
+
+        if not available_expiries:
+            st.warning("No future expiry dates found in uploaded file.")
+            return pd.DataFrame(), None, []
+
+        if target_expiry_index >= len(available_expiries):
+            target_expiry = available_expiries[-1]
+        else:
+            target_expiry = available_expiries[target_expiry_index]
+
+        near_futures = futures[futures["XpryDt"] == target_expiry].copy()
+        near_futures = near_futures[["TckrSymb", "ClsPric", "XpryDt"]]
+        near_futures = near_futures.rename(columns={"ClsPric": "FuturePrice", "XpryDt": "FutureExpiryDate"})
+
+        options = df_bhav[df_bhav["OptnTp"].isin(["CE", "PE"])].copy()
+        if options.empty:
+            st.warning("No Options data found in uploaded file.")
+            return pd.DataFrame(), target_expiry, available_expiries
+
+        options["XpryDt"] = pd.to_datetime(options["XpryDt"])
+
+        merged = pd.merge(options, near_futures, on="TckrSymb")
+        merged = merged[merged["XpryDt"] == merged["FutureExpiryDate"]]
+
+        merged["Diff"] = abs(merged["StrkPric"] - merged["FuturePrice"])
+
+        best_strikes = merged[["TckrSymb", "StrkPric", "Diff"]].drop_duplicates()
+        best_strikes = best_strikes.sort_values(by=["TckrSymb", "Diff", "StrkPric"])
+        best_strikes = best_strikes.groupby("TckrSymb").first().reset_index()
+
+        atm_options = pd.merge(merged, best_strikes[["TckrSymb", "StrkPric"]], on=["TckrSymb", "StrkPric"])
+        atm_rows = atm_options[[
+            "TckrSymb", "XpryDt", "StrkPric", "OptnTp", "FuturePrice", "ClsPric",
+            "FinInstrmNm", "HghPric", "LwPric", "LastPric"
+        ]].copy()
+
+        atm_rows["XpryDt"] = atm_rows["XpryDt"].dt.normalize()
+
+        result = pd.merge(
+            atm_rows,
+            df_json,
+            left_on=["TckrSymb", "StrkPric", "OptnTp", "XpryDt"],
+            right_on=["underlying_symbol", "strike_price", "instrument_type", "expiry_dt"],
+            how="inner"
+        )
+
+        if result.empty and not atm_rows.empty:
+            st.error(
+                "Data mismatch: Found options in Bhavcopy but couldn't find "
+                "them in NSE.json. Please update NSE.json via the sidebar."
+            )
+
+        final_df = result[[
+            "TckrSymb", "XpryDt", "StrkPric", "OptnTp",
+            "FuturePrice", "ClsPric", "instrument_key",
+            "HghPric", "LwPric", "LastPric"
+        ]].copy()
+
+        final_df = final_df.rename(columns={
+            "TckrSymb": "Symbol",
+            "XpryDt": "ExpiryDate",
+            "StrkPric": "StrikePrice",
+            "OptnTp": "OptionType",
+            "ClsPric": "Trigger",
+            "HghPric": "HighPrice",
+            "LwPric": "LowPrice",
+            "LastPric": "LastPrice"
+        })
+
+        final_df["Camarilla_R4"] = (
+            final_df["Trigger"] + (final_df["HighPrice"] - final_df["LowPrice"]) * 1.1 / 2
+        )
+
+        if "Trigger" in final_df.columns:
+            final_df["Trigger"] = final_df["Trigger"] * 2
+
+        return final_df, target_expiry, available_expiries
+
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
+        return pd.DataFrame(), None, []
+
+
+# ============================================================
+# FETCH LTP — bhavcopy tabs (Upstox v3 LTP endpoint)
+# ============================================================
+
+def fetch_ltp(instrument_keys, token):
+    if not token:
+        return {}
+
+    url = "https://api.upstox.com/v3/market-quote/ltp"
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+
+    batch_size = 50
+    ltp_map = {}
+
+    batches = [instrument_keys[i:i + batch_size] for i in range(0, len(instrument_keys), batch_size)]
+
+    def fetch_batch(batch):
+        params = {"instrument_key": ",".join(batch)}
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "success":
+                    quotes = data.get("data", {})
+                    result = {}
+                    for key, details in quotes.items():
+                        inst_token = details.get("instrument_token")
+                        last_price = details.get("last_price")
+                        if inst_token is not None:
+                            result[inst_token] = last_price
+                    return result
+        except Exception:
+            pass
+        return {}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(fetch_batch, batch) for batch in batches]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                batch_result = future.result()
+                if batch_result:
+                    ltp_map.update(batch_result)
+            except Exception:
+                pass
+
+    return ltp_map
+
+
+# ============================================================
+# DISPLAY — bhavcopy option chain (Monthly / Weekly / Intraday)
+# ============================================================
+
+def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, telegram_bot_token="", telegram_chat_id=""):
+    st.caption(f"Last Updated: {get_ist_now().strftime('%H:%M:%S')} IST")
+    if df.empty:
+        st.info("No data to display. Please upload a valid Bhavcopy in the sidebar.")
+        return
+
+    if access_token:
+        all_keys = df["instrument_key"].dropna().unique().tolist()
+
+        ist_now = get_ist_now()
+        current_time = ist_now.time()
+        start_time = datetime.strptime("09:00", "%H:%M").time()
+        end_time = datetime.strptime("15:40", "%H:%M").time()
+
+        is_market_hours = start_time <= current_time <= end_time
+
+        ltp_cache = load_ltp_cache()
+        missing_keys = [k for k in all_keys if k not in ltp_cache]
+
+        force_refresh = st.session_state.get("force_refresh_ltp", False)
+
+        should_fetch = False
+
+        if is_market_hours:
+            should_fetch = True
+        elif force_refresh:
+            should_fetch = True
+            st.session_state["force_refresh_ltp"] = False
+        elif missing_keys:
+            should_fetch = True
+
+        if should_fetch:
+            keys_to_fetch = all_keys if is_market_hours else missing_keys
+            fetched_data = fetch_ltp(keys_to_fetch, access_token)
+            if fetched_data:
+                save_ltp_cache(fetched_data)
+                ltp_cache = load_ltp_cache()
+
+        ltp_data = {k: ltp_cache.get(k, 0.0) for k in all_keys}
+        df["ltp"] = df["instrument_key"].map(ltp_data).fillna(0.0)
+    else:
+        df["ltp"] = 0.0
+        st.warning("Enter Access Token in sidebar to see live LTP.")
+
+    if key_suffix == "Intraday" and "Camarilla_R4" in df.columns:
+        df["Trigger"] = df["Camarilla_R4"]
+
+    def calculate_numeric_change(row):
+        try:
+            ocp = float(row["Trigger"])
+            ltp = float(row["ltp"])
+            if ocp > 0 and ltp > 0:
+                return (ltp / ocp * 100)
+            return 0.0
+        except:
+            return 0.0
+
+    df["change_val"] = df.apply(calculate_numeric_change, axis=1)
+    df["change %"] = df["change_val"]
+
+    if key_suffix == "Intraday":
+        blacklist = load_blacklist()
+        current_time = get_ist_now().time()
+        cutoff_time = datetime.strptime("09:30", "%H:%M").time()
+
+        if current_time < cutoff_time:
+            violators = df[df["change %"] >= 100]["instrument_key"].tolist()
+            if violators:
+                blacklist.update(violators)
+                save_blacklist(blacklist)
+
+        if blacklist:
+            df = df[~df["instrument_key"].isin(blacklist)]
+
+    # Telegram trigger alerts — full CE+PE set, before the split below.
+    check_and_alert_triggers(df, key_suffix, telegram_enabled, telegram_bot_token, telegram_chat_id)
+
+    calls_df = df[df["OptionType"] == "CE"].copy()
+    puts_df = df[df["OptionType"] == "PE"].copy()
+
+    calls_df = calls_df.sort_values(by="change %", ascending=False)
+    puts_df = puts_df.sort_values(by="change %", ascending=False)
+
+    display_cols = ["Symbol", "StrikePrice", "Trigger", "ltp", "change %"]
+
+    def color_change(val):
+        try:
+            val = float(val)
+        except:
+            return ""
+        if PRIORITY_MIN <= val <= PRIORITY_MAX:
+            return "background-color: #fff2cc; color: #000000; font-weight: bold;"
+        elif val > PRIORITY_MAX:
+            return "background-color: darkgreen; color: white; font-weight: bold;"
+        elif val >= 80:
+            return "background-color: lightgreen; color: black;"
+        return ""
+
+    format_dict = {
+        "change %": "{:.2f}%",
+        "Trigger": "{:.2f}",
+        "ltp": "{:.2f}",
+        "StrikePrice": "{:.2f}"
+    }
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Calls (CE)")
+        st.dataframe(
+            calls_df[display_cols].style
+            .map(color_change, subset=["change %"])
+            .format(format_dict)
+            .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
+            hide_index=True,
+            use_container_width=True,
+            height=1800
+        )
+
+    with col2:
+        st.subheader("Puts (PE)")
+        st.dataframe(
+            puts_df[display_cols].style
+            .map(color_change, subset=["change %"])
+            .format(format_dict)
+            .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
+            hide_index=True,
+            use_container_width=True,
+            height=1800
+        )
+
+
+# ============================================================
+# 1HR BO — LIVE ORB SCANNER (uses Upstox v3 OHLC/LTP + intraday
+# hourly candles directly, independent of the bhavcopy tabs)
+# ============================================================
+
 def fetch_future_open_v3(instrument_keys, headers):
-    """Fetch today's live OHLC (used only for the future's Open price).
-    Returns (dataframe, raw_sample) where raw_sample is a small slice of
-    the raw API response for diagnostics if open prices come back empty.
-    """
     url = "https://api.upstox.com/v3/market-quote/ohlc"
     rows = []
     raw_sample = None
@@ -228,7 +848,6 @@ def fetch_future_open_v3(instrument_keys, headers):
             continue
 
         if raw_sample is None:
-            # keep first couple of entries verbatim for diagnostics
             raw_sample = dict(list(data.items())[:2])
 
         for response_key, item in data.items():
@@ -238,18 +857,8 @@ def fetch_future_open_v3(instrument_keys, headers):
             live = item.get("live_ohlc") or item.get("ohlc") or {}
             prev = item.get("prev_ohlc") or {}
 
-            # IMPORTANT: Upstox keys this response dict by trading symbol
-            # (e.g. "NSE_FO:SBIN26AUGFUT"), NOT by instrument_key. The
-            # actual instrument_key (pipe format, e.g. "NSE_FO|58382")
-            # that matches the instrument master is nested inside the
-            # item itself as "instrument_token". Using response_key was
-            # causing every merge to silently fail (future_open -> NaN)
-            # even though Upstox was returning valid open prices.
             true_key = item.get("instrument_token") or response_key
 
-            # Prefer live_ohlc.open; fall back to prev_ohlc.close, then
-            # last_price, so a partially-populated response doesn't
-            # zero out the whole row.
             open_price = (
                 live.get("open")
                 if live.get("open") not in (None, 0)
@@ -292,9 +901,6 @@ def fetch_ltp_v3(instrument_keys, headers):
             if not isinstance(item, dict):
                 continue
 
-            # Same defensive fix as OHLC: prefer the instrument_token
-            # nested in the payload over the dict key, in case this
-            # endpoint also keys by trading symbol for some instruments.
             true_key = item.get("instrument_token") or response_key
 
             rows.append({
@@ -321,31 +927,11 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
     return chain.sort_values("strike_diff").iloc[0]
 
 
-# ---------------------------------------------------------------------
-# ORB (Opening Range Breakout) — 1-hour candle logic
-#
-#   Trigger = High of the FIRST 1-hour candle of the trading day
-#             (e.g. 9:15-10:15 IST). This locks in once that first
-#             hourly candle closes; before that it reflects the
-#             developing high of the opening hour.
-#
-#   TGT = Trigger, SL = Trigger — both equal to the Trigger itself.
-#         No multiplier, no separate levels.
-#
-#   No first-hour range filter, no confirming-candle condition.
-#   Every strike that has a valid first-hour high gets a Trigger.
-#
-#   Breakout ("crossed") = live LTP >= Trigger, checked directly
-#   against the live price every refresh (computed in the main
-#   scanner below, not here).
-#
-# Uses Upstox's intraday historical-candle endpoint (unit=hours,
-# interval=1), which returns today's hourly candles including the
-# currently-forming one, purely to read off the first hour's high.
-# Cached for a short 15s TTL per refresh cycle so repeated
-# auto-refreshes don't hammer the API.
-# ---------------------------------------------------------------------
 def _fetch_single_orb_data(instrument_key, headers):
+    """
+    Trigger = high of the first 1-hour candle of the day.
+    TGT = Trigger, SL = Trigger (no multiplier, no filters).
+    """
     safe_key = quote(instrument_key, safe="|")
     url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1"
 
@@ -361,14 +947,11 @@ def _fetch_single_orb_data(instrument_key, headers):
         if not candles:
             return instrument_key, None, "No intraday hourly candles yet today"
 
-        # Each candle: [timestamp, open, high, low, close, volume, oi].
-        # Upstox returns these newest-first; sort chronologically so
-        # index 0 is genuinely the first (opening) hour of the day.
         candles_sorted = sorted(candles, key=lambda c: c[0])
 
         first_hour = candles_sorted[0]
         first_hour_high = first_hour[2]
-        trigger = first_hour_high  # high of the first 1-hour candle
+        trigger = first_hour_high
 
         if trigger in (None, 0):
             return instrument_key, None, "First-hour candle has no valid high"
@@ -385,7 +968,7 @@ def _fetch_single_orb_data(instrument_key, headers):
         return instrument_key, None, f"Exception: {e}"
 
 
-@st.cache_data(ttl=15, show_spinner="Computing ORB trigger levels...")
+@st.cache_data(ttl=15, show_spinner="Computing 1HR BO trigger levels...")
 def fetch_orb_map(instrument_keys, headers_tuple):
     headers = dict(headers_tuple)
     result = {}
@@ -407,72 +990,13 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     return result, sample_errors
 
 
-# ---------------------------------------------------------------------
-# Telegram Alerts
-#
-# Fires once per symbol, the moment its live price crosses Trigger
-# (LTP >= Trigger). State is tracked in st.session_state so it
-# doesn't re-alert on every refresh.
-# ---------------------------------------------------------------------
-def send_telegram_alert(bot_token, chat_id, message):
-    if not bot_token or not chat_id:
-        return False, "Missing bot token or chat ID"
-
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
-
-    try:
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            return True, None
-        return False, f"HTTP {response.status_code}: {response.text[:200]}"
-    except Exception as e:
-        return False, f"Exception: {e}"
-
-
-def check_and_alert_orb_breakouts(df, bot_token, chat_id):
-    if df.empty:
-        return
-
-    alerted = st.session_state.setdefault("orb_alert_state", set())
-    newly_confirmed = []
-
-    for _, row in df.iterrows():
-        symbol = row["Symbol"]
-
-        if row["Breakout"] == "✅" and symbol not in alerted:
-            newly_confirmed.append(row)
-            alerted.add(symbol)
-
-    if not newly_confirmed:
-        return
-
-    message_lines = ["🚀 <b>Trigger Crossed</b>"]
-    for row in newly_confirmed:
-        message_lines.append(
-            f"\n<b>{row['Symbol']}</b>\n"
-            f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}"
-        )
-
-    message = "\n".join(message_lines)
-    success, error = send_telegram_alert(bot_token, chat_id, message)
-
-    if success:
-        st.sidebar.success(f"Telegram alert sent for {len(newly_confirmed)} trigger cross(es).")
-    else:
-        st.sidebar.warning(f"Telegram alert failed: {error}")
-
-
-# ---------------------------------------------------------------------
-# Main scanner
-# ---------------------------------------------------------------------
 def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}"
     }
 
-    futures, options = load_nse_fo_instruments()
+    futures, options = load_live_fo_instruments()
     expiry = get_expiry_for_choice(futures, expiry_choice)
 
     if expiry is None:
@@ -484,9 +1008,6 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
 
     st.caption(f"Expiry: {expiry}  |  Stock futures: {len(futures)}")
 
-    # -----------------------------------------------------------------
-    # Futures Open (for ATM strike selection)
-    # -----------------------------------------------------------------
     fut_quotes, ohlc_raw_sample = fetch_future_open_v3(futures["instrument_key"].tolist(), headers)
 
     if fut_quotes.empty:
@@ -497,21 +1018,11 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
     futures = futures.dropna(subset=["future_open"])
 
     if futures.empty:
-        st.error(
-            "All futures were dropped after the Open-price fetch "
-            "(future_open came back empty/NaN for every instrument)."
-        )
+        st.error("All futures were dropped after the Open-price fetch (future_open came back empty/NaN for every instrument).")
         with st.expander("⚠️ Raw OHLC API response sample — diagnostics", expanded=True):
-            st.write(
-                "This is exactly what Upstox returned for the first couple "
-                "of futures instruments requested:"
-            )
             st.json(ohlc_raw_sample if ohlc_raw_sample else {"note": "response 'data' was empty"})
         return pd.DataFrame(), pd.DataFrame()
 
-    # -----------------------------------------------------------------
-    # Select nearest CE/PE for each future
-    # -----------------------------------------------------------------
     selected_rows = []
 
     for _, fut in futures.iterrows():
@@ -534,8 +1045,6 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
     selected = pd.DataFrame(selected_rows)
 
     if selected.empty:
-        # Diagnostics: figure out WHY nothing matched instead of
-        # just saying "No CE/PE options found" with no way to tell why.
         fut_keys = set(futures["underlying_key"].dropna().unique())
         opt_keys = set(options["underlying_key"].dropna().unique())
         overlap = fut_keys & opt_keys
@@ -547,19 +1056,8 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
             st.write(f"Distinct underlying_key in futures: {len(fut_keys)}")
             st.write(f"Distinct underlying_key in options: {len(opt_keys)}")
             st.write(f"Overlapping underlying_key between the two: {len(overlap)}")
-            st.write("Sample futures underlying_key values:", sorted(list(fut_keys))[:5])
-            st.write("Sample options underlying_key values:", sorted(list(opt_keys))[:5])
-            if len(overlap) == 0 and fut_keys and opt_keys:
-                st.write(
-                    "**No overlap at all** — the two dataframes are keyed "
-                    "differently (e.g. one is empty, or the underlying_key "
-                    "format differs). This is the actual bug to chase."
-                )
         return pd.DataFrame(), pd.DataFrame()
 
-    # -----------------------------------------------------------------
-    # Option LTP (live, every refresh)
-    # -----------------------------------------------------------------
     option_quotes = fetch_ltp_v3(selected["option_key"].tolist(), headers)
 
     if option_quotes.empty:
@@ -568,23 +1066,12 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
 
     option_quotes = option_quotes.drop_duplicates("instrument_key")
 
-    selected = selected.merge(
-        option_quotes,
-        left_on="option_key",
-        right_on="instrument_key",
-        how="left"
-    )
+    selected = selected.merge(option_quotes, left_on="option_key", right_on="instrument_key", how="left")
     selected = selected.drop(columns=["instrument_key"])
 
-    # -----------------------------------------------------------------
-    # Symbol / Chg% / Ctr / Capital — computed first, since ranking by
-    # Chg% only needs LTP data (already have it), not ORB levels.
-    # -----------------------------------------------------------------
     selected["Symbol"] = (
-        selected["underlying_symbol"].astype(str)
-        + " "
-        + selected["strike"].astype(int).astype(str)
-        + " "
+        selected["underlying_symbol"].astype(str) + " "
+        + selected["strike"].astype(int).astype(str) + " "
         + selected["option_type"].astype(str)
     )
 
@@ -594,42 +1081,15 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
         np.nan
     )
 
-    selected["Ctr"] = np.where(
-        selected["Lot"] > 0,
-        selected["volume"] / selected["Lot"],
-        np.nan
-    )
-
+    selected["Ctr"] = np.where(selected["Lot"] > 0, selected["volume"] / selected["Lot"], np.nan)
     selected["Capital"] = selected["ltp"] * selected["Lot"]
 
-    selected = selected.rename(columns={
-        "ltp": "LTP",
-        "volume": "Vol",
-        "Capital": "Capital Required"
-    })
+    selected = selected.rename(columns={"ltp": "LTP", "volume": "Vol", "Capital": "Capital Required"})
 
-    # -----------------------------------------------------------------
-    # Rank down to only what will actually be shown (top_n CE + top_n
-    # PE) BEFORE fetching ORB levels. The intraday candle endpoint is
-    # one request per instrument — fetching it for all ~400 candidates
-    # when only ~40 get displayed would trip Upstox's rate limits.
-    # -----------------------------------------------------------------
-    ce_candidates = (
-        selected[selected["Symbol"].str.endswith("CE")]
-        .sort_values("Chg%", ascending=False)
-        .head(top_n)
-    )
-    pe_candidates = (
-        selected[selected["Symbol"].str.endswith("PE")]
-        .sort_values("Chg%", ascending=False)
-        .head(top_n)
-    )
+    ce_candidates = selected[selected["Symbol"].str.endswith("CE")].sort_values("Chg%", ascending=False).head(top_n)
+    pe_candidates = selected[selected["Symbol"].str.endswith("PE")].sort_values("Chg%", ascending=False).head(top_n)
     shortlisted = pd.concat([ce_candidates, pe_candidates], ignore_index=True)
 
-    # -----------------------------------------------------------------
-    # ORB Trigger — first-hour High. TGT and SL are simply set equal
-    # to Trigger (no separate levels, no filters).
-    # -----------------------------------------------------------------
     orb_map, orb_errors = fetch_orb_map(
         tuple(sorted(shortlisted["option_key"].unique())),
         tuple(headers.items())
@@ -650,22 +1110,15 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
 
     if missing_count > 0:
         with st.expander(
-            f"⚠️ ORB Trigger not yet available for {missing_count}/{total_count} options — click for details",
+            f"⚠️ 1HR BO Trigger not yet available for {missing_count}/{total_count} options",
             expanded=(missing_count == total_count)
         ):
-            st.write(
-                "This is normal before the first hourly candle (9:15-10:15 IST) "
-                "has any data, or if Upstox hasn't returned candles yet."
-            )
+            st.write("Normal before the first hourly candle (9:15-10:15 IST) has data yet.")
             if orb_errors:
-                st.write("Sample errors from the intraday candle API:")
                 for err in orb_errors:
                     st.code(err)
 
-    # -----------------------------------------------------------------
-    # Breakout ("crossed") = live LTP >= Trigger. No hourly-candle
-    # confirmation, no range filter — pure price cross, checked live.
-    # -----------------------------------------------------------------
+    # Breakout = live LTP >= Trigger. Pure price cross, checked live.
     shortlisted["Breakout"] = np.where(
         (shortlisted["Trigger"].notna()) & (shortlisted["LTP"] >= shortlisted["Trigger"]),
         "✅",
@@ -679,25 +1132,8 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
     )
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
-    # -----------------------------------------------------------------
-    # Final column order: Symbol, Open, LTP, Trigger, Away%, TGT, SL,
-    # Breakout, Vol, Lot, Capital Required.
-    # Chg% and Ctr are still computed above (Chg% drives the top_n
-    # shortlist ranking) but are intentionally left out of the table
-    # that's actually shown to the user.
-    # -----------------------------------------------------------------
     result = shortlisted[[
-        "Symbol",
-        "Open",
-        "LTP",
-        "Trigger",
-        "Away %",
-        "TGT",
-        "SL",
-        "Breakout",
-        "Vol",
-        "Lot",
-        "Capital Required"
+        "Symbol", "Open", "LTP", "Trigger", "Away %", "TGT", "SL", "Breakout", "Vol", "Lot", "Capital Required"
     ]].copy()
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %"]:
@@ -705,28 +1141,14 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
 
     result["Vol"] = pd.to_numeric(result["Vol"], errors="coerce").fillna(0).astype(int)
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
-    result["Capital Required"] = pd.to_numeric(
-        result["Capital Required"], errors="coerce"
-    ).round(0).fillna(0).astype(int)
+    result["Capital Required"] = pd.to_numeric(result["Capital Required"], errors="coerce").round(0).fillna(0).astype(int)
 
-    ce_table = (
-        result[result["Symbol"].str.endswith("CE")]
-        .sort_values("Away %", ascending=False, na_position="last")
-        .reset_index(drop=True)
-    )
-
-    pe_table = (
-        result[result["Symbol"].str.endswith("PE")]
-        .sort_values("Away %", ascending=False, na_position="last")
-        .reset_index(drop=True)
-    )
+    ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
+    pe_table = result[result["Symbol"].str.endswith("PE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
 
     return ce_table, pe_table
 
 
-# ---------------------------------------------------------------------
-# Display
-# ---------------------------------------------------------------------
 def table_height(df, row_px=35, header_px=38, max_px=900):
     return min(header_px + row_px * max(len(df), 1) + 3, max_px)
 
@@ -759,11 +1181,6 @@ def style_breakout(value):
     return "text-align: center; color: #999;"
 
 
-# Static column tints so Trigger / TGT / SL are visually distinct at a
-# glance, AND so CE vs PE tables don't look identical to each other.
-# CE side uses blue/green/red; PE side uses a deeper purple/teal/amber
-# so the two panels are instantly distinguishable even without reading
-# the "Calls (CE)" / "Puts (PE)" labels.
 CE_COLUMN_TINTS = {
     "Trigger": {"background-color": "#E3F2FD", "color": "#0D47A1", "font-weight": "600"},
     "TGT": {"background-color": "#E8F5E9", "color": "#1B5E20", "font-weight": "600"},
@@ -784,7 +1201,7 @@ def apply_column_tints(styler, tints):
 
 
 def show_side_by_side(ce_table, pe_table):
-    last_updated = datetime.now(IST).strftime("%H:%M:%S")
+    last_updated = get_ist_now().strftime("%H:%M:%S")
     st.caption(f"Last Updated: {last_updated} IST")
 
     col1, col2 = st.columns(2)
@@ -801,12 +1218,7 @@ def show_side_by_side(ce_table, pe_table):
                 .pipe(apply_column_tints, CE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
             )
-            st.dataframe(
-                ce_style,
-                use_container_width=True,
-                hide_index=True,
-                height=table_height(ce_table)
-            )
+            st.dataframe(ce_style, use_container_width=True, hide_index=True, height=table_height(ce_table))
 
     with col2:
         st.markdown("**Puts (PE)**")
@@ -820,93 +1232,274 @@ def show_side_by_side(ce_table, pe_table):
                 .pipe(apply_column_tints, PE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
             )
-            st.dataframe(
-                pe_style,
-                use_container_width=True,
-                hide_index=True,
-                height=table_height(pe_table)
-            )
+            st.dataframe(pe_style, use_container_width=True, hide_index=True, height=table_height(pe_table))
 
 
-# ---------------------------------------------------------------------
-# App entry point
-# ---------------------------------------------------------------------
-def main():
-    st.title("ORB 1HR Scanner")
+# ============================================================
+# CONFIGURATION (shared sidebar for ALL tabs)
+# ============================================================
 
-    (
-        access_token,
-        expiry_choice,
-        refresh_clicked,
-        download_clicked,
-        auto_refresh_enabled,
-        refresh_interval,
-        telegram_enabled,
-        telegram_bot_token,
-        telegram_chat_id,
-        test_telegram_clicked,
-        reset_alert_state_clicked
-    ) = render_sidebar()
+is_client_view = "UPSTOX_ACCESS_TOKEN" in st.secrets and st.secrets["UPSTOX_ACCESS_TOKEN"].strip() != ""
 
-    if auto_refresh_enabled and AUTOREFRESH_AVAILABLE:
-        st_autorefresh(interval=refresh_interval * 1000, key="scanner_autorefresh")
+if is_client_view:
+    access_token = st.secrets["UPSTOX_ACCESS_TOKEN"]
 
-    if reset_alert_state_clicked:
-        st.session_state["orb_alert_state"] = set()
-        st.sidebar.info("Alert state cleared — crossed triggers will alert again.")
+    st.markdown("""
+        <style>
+            [data-testid="stSidebar"] { display: none; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    if test_telegram_clicked:
-        success, error = send_telegram_alert(
-            telegram_bot_token,
-            telegram_chat_id,
-            "✅ Test alert from ORB 1HR Scanner — Telegram is wired up correctly."
+    auto_refresh = True
+    refresh_interval = 15
+    target_expiry_idx = 0
+    expiry_type = "Current Month"
+
+    telegram_bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
+    telegram_enabled = bool(telegram_bot_token and telegram_chat_id)
+
+else:
+    with st.sidebar:
+        st.header("Configuration")
+
+        saved_token = load_token()
+        access_token = st.text_input("Upstox Access Token", value=saved_token, type="password")
+
+        if access_token and access_token != saved_token:
+            save_token(access_token)
+
+        st.markdown("---")
+        st.header("Expiry Settings")
+
+        expiry_type = st.radio(
+            "Select Expiry Month",
+            options=["Current Month", "Next Month"],
+            index=0,
+            help="Used by Monthly / Weekly bhavcopy tabs and the 1HR BO tab. Intraday tab always uses the nearest expiry."
         )
-        if success:
-            st.sidebar.success("Test message sent — check Telegram.")
-        else:
-            st.sidebar.error(f"Test message failed: {error}")
+        target_expiry_idx = 0 if expiry_type == "Current Month" else 1
 
-    if download_clicked:
-        with st.spinner("Downloading latest NSE instrument JSON..."):
-            resp = requests.get(INSTRUMENT_URL)
+        st.markdown("---")
+        st.header("Telegram Alerts")
 
-            if resp.status_code == 200:
-                st.sidebar.download_button(
-                    label="Save instruments.json.gz",
-                    data=resp.content,
-                    file_name="NSE_instruments.json.gz",
-                    mime="application/gzip"
-                )
+        telegram_enabled = st.checkbox(
+            "Enable Trigger Alerts",
+            value=st.session_state.get("telegram_enabled", False),
+            key="telegram_enabled",
+            help="Sends a Telegram message the moment any tab's option LTP crosses its Trigger price."
+        )
+
+        telegram_bot_token = st.text_input(
+            "Bot Token",
+            type="password",
+            value=st.session_state.get("telegram_bot_token", ""),
+            key="telegram_bot_token",
+            help="Create a bot via @BotFather on Telegram to get this token."
+        )
+
+        telegram_chat_id = st.text_input(
+            "Chat ID",
+            value=st.session_state.get("telegram_chat_id", ""),
+            key="telegram_chat_id",
+            help="Your personal or group chat ID. Message @userinfobot to find yours."
+        )
+
+        tg_col1, tg_col2 = st.columns(2)
+        test_telegram_clicked = tg_col1.button("Send Test", use_container_width=True)
+        reset_alert_state_clicked = tg_col2.button("Reset Alerts", use_container_width=True)
+
+        if reset_alert_state_clicked:
+            save_trigger_alert_state(set())
+            st.success("Alert state cleared for ALL tabs — already-triggered options will alert again.")
+
+        if test_telegram_clicked:
+            success, error = send_telegram_alert(
+                telegram_bot_token,
+                telegram_chat_id,
+                "✅ Test alert from Stock Option Scanner — Telegram is wired up correctly."
+            )
+            if success:
+                st.success("Test message sent — check Telegram.")
             else:
-                st.sidebar.error(f"Download failed: {resp.status_code}")
+                st.error(f"Test message failed: {error}")
 
-    should_fetch = refresh_clicked or (auto_refresh_enabled and access_token)
+        st.markdown("---")
+        st.header("Data Management")
 
-    if should_fetch:
+        if st.button("⚡ Refresh LTP Now", use_container_width=True):
+            st.session_state["force_refresh_ltp"] = True
+            st.rerun()
+
+        st.subheader("NSE Instrument JSON (Bhavcopy match)")
+
+        if st.button("🔄 Download Latest"):
+            try:
+                with st.spinner("Downloading latest NSE.json..."):
+                    url = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+                    headers = {"User-Agent": "Mozilla/5.0"}
+                    response = requests.get(url, headers=headers, stream=True)
+
+                    if response.status_code == 200:
+                        with open(NSE_JSON_PATH, "wb") as f_out:
+                            with gzip.GzipFile(fileobj=response.raw) as f_in:
+                                shutil.copyfileobj(f_in, f_out)
+                        st.cache_data.clear()
+                        st.success("Updated successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to download. Status: {response.status_code}")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+        st.subheader("Monthly")
+        up_m = st.file_uploader("Upload Monthly Bhavcopy", type=["zip"], key="m_up")
+        if up_m is not None:
+            csv_content, csv_name = extract_csv_from_zip(up_m)
+            if csv_content:
+                with open(FILES["Monthly"], "wb") as f:
+                    f.write(csv_content)
+                date_str = extract_date_from_filename(csv_name)
+                if date_str:
+                    save_meta("Monthly", date_str)
+                st.success(f"Monthly file updated from {csv_name}!")
+
+        meta = load_meta()
+        if "Monthly" in meta and os.path.exists(FILES["Monthly"]):
+            st.caption(f"📅 Data Date: {meta['Monthly']}")
+        elif os.path.exists(FILES["Monthly"]):
+            m_time = os.path.getmtime(FILES["Monthly"])
+            st.caption(f"📅 Last Updated: {datetime.fromtimestamp(m_time).strftime('%Y-%m-%d %H:%M')}")
+
+        st.subheader("Weekly")
+        up_w = st.file_uploader("Upload Weekly Bhavcopy", type=["zip"], key="w_up")
+        if up_w is not None:
+            csv_content, csv_name = extract_csv_from_zip(up_w)
+            if csv_content:
+                with open(FILES["Weekly"], "wb") as f:
+                    f.write(csv_content)
+                date_str = extract_date_from_filename(csv_name)
+                if date_str:
+                    save_meta("Weekly", date_str)
+                st.success(f"Weekly file updated from {csv_name}!")
+
+        if "Weekly" in meta and os.path.exists(FILES["Weekly"]):
+            st.caption(f"📅 Data Date: {meta['Weekly']}")
+        elif os.path.exists(FILES["Weekly"]):
+            w_time = os.path.getmtime(FILES["Weekly"])
+            st.caption(f"📅 Last Updated: {datetime.fromtimestamp(w_time).strftime('%Y-%m-%d %H:%M')}")
+
+        st.subheader("Intraday")
+        up_i = st.file_uploader("Upload Intraday Bhavcopy", type=["zip"], key="i_up")
+        if up_i is not None:
+            csv_content, csv_name = extract_csv_from_zip(up_i)
+            if csv_content:
+                with open(FILES["Intraday"], "wb") as f:
+                    f.write(csv_content)
+                date_str = extract_date_from_filename(csv_name)
+                if date_str:
+                    save_meta("Intraday", date_str)
+                st.success(f"Intraday file updated from {csv_name}!")
+
+        if "Intraday" in meta and os.path.exists(FILES["Intraday"]):
+            st.caption(f"📅 Data Date: {meta['Intraday']}")
+        elif os.path.exists(FILES["Intraday"]):
+            i_time = os.path.getmtime(FILES["Intraday"])
+            st.caption(f"📅 Last Updated: {datetime.fromtimestamp(i_time).strftime('%Y-%m-%d %H:%M')}")
+
+        st.markdown("---")
+        st.header("Auto Refresh")
+        st.caption("Drives Monthly / Weekly / Intraday AND the 1HR BO tab.")
+
+        auto_refresh = st.checkbox("Enable Auto-Refresh", value=False)
+        refresh_interval = st.slider("Refresh Interval (seconds)", min_value=5, max_value=60, value=15)
+
+
+# ============================================================
+# MAIN PAGE
+# ============================================================
+
+st.title("Stock Option Scanner")
+
+nse_json_df = load_nse_json()
+
+if not nse_json_df.empty:
+    tab1, tab2, tab3, tab4 = st.tabs(["Monthly", "Weekly", "Intraday", "1HR BO"])
+
+    run_every = refresh_interval if auto_refresh else None
+
+    # --------------------------------------------------------
+    # MONTHLY
+    # --------------------------------------------------------
+    with tab1:
+        st.header(f"Monthly Options ({expiry_type if not is_client_view else 'Current Month'})")
+        if os.path.exists(FILES["Monthly"]):
+            @st.fragment(run_every=run_every)
+            def show_monthly():
+                df_m, target_exp, all_exps = process_bhavcopy(FILES["Monthly"], nse_json_df, target_expiry_index=target_expiry_idx)
+                if target_exp:
+                    st.info(f"📅 Displaying Expiry: **{target_exp.strftime('%d-%b-%Y')}**")
+                display_option_chain(df_m, access_token, "Monthly", telegram_enabled, telegram_bot_token, telegram_chat_id)
+            show_monthly()
+        else:
+            st.warning("Monthly Bhavcopy file not found. Please upload in the sidebar.")
+
+    # --------------------------------------------------------
+    # WEEKLY
+    # --------------------------------------------------------
+    with tab2:
+        st.header(f"Weekly Options ({expiry_type if not is_client_view else 'Current Month'})")
+        if os.path.exists(FILES["Weekly"]):
+            @st.fragment(run_every=run_every)
+            def show_weekly():
+                df_w, target_exp, all_exps = process_bhavcopy(FILES["Weekly"], nse_json_df, target_expiry_index=target_expiry_idx)
+                if target_exp:
+                    st.info(f"📅 Displaying Expiry: **{target_exp.strftime('%d-%b-%Y')}**")
+                display_option_chain(df_w, access_token, "Weekly", telegram_enabled, telegram_bot_token, telegram_chat_id)
+            show_weekly()
+        else:
+            st.warning("Weekly Bhavcopy file not found. Please upload in the sidebar.")
+
+    # --------------------------------------------------------
+    # INTRADAY
+    # --------------------------------------------------------
+    with tab3:
+        st.header("Intraday Options")
+        if os.path.exists(FILES["Intraday"]):
+            @st.fragment(run_every=run_every)
+            def show_intraday():
+                df_i, target_exp, all_exps = process_bhavcopy(FILES["Intraday"], nse_json_df, target_expiry_index=0)
+                if target_exp:
+                    st.info(f"📅 Displaying Expiry: **{target_exp.strftime('%d-%b-%Y')}**")
+                display_option_chain(df_i, access_token, "Intraday", telegram_enabled, telegram_bot_token, telegram_chat_id)
+            show_intraday()
+        else:
+            st.warning("Intraday Bhavcopy file not found. Please upload in the sidebar.")
+
+    # --------------------------------------------------------
+    # 1HR BO — live ORB scanner (Trigger = 1st hour High, TGT=SL=Trigger)
+    # --------------------------------------------------------
+    with tab4:
+        st.header("1HR Breakout Options (Live)")
+
         if not access_token:
             st.warning("Enter your Upstox Access Token in the sidebar first.")
-            return
+        else:
+            @st.fragment(run_every=run_every)
+            def show_1hr_bo():
+                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=20)
 
-        with st.spinner("Fetching latest data..."):
-            ce_table, pe_table = build_open_strike_scanner(
-                access_token, expiry_choice, top_n=20
-            )
+                if not ce_table.empty or not pe_table.empty:
+                    if telegram_enabled:
+                        combined = pd.concat([ce_table, pe_table], ignore_index=True)
+                        check_and_alert_1hr_bo(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
 
-        if not ce_table.empty or not pe_table.empty:
-            st.session_state["ce_table"] = ce_table
-            st.session_state["pe_table"] = pe_table
+                    show_side_by_side(ce_table, pe_table)
+                else:
+                    st.info("No data yet — click Refresh LTP Now or wait for market data.")
 
-            # Check for price crossing Trigger and alert on Telegram,
-            # once per symbol, only for newly-crossed ones.
-            if telegram_enabled:
-                combined = pd.concat([ce_table, pe_table], ignore_index=True)
-                check_and_alert_orb_breakouts(combined, telegram_bot_token, telegram_chat_id)
+            show_1hr_bo()
 
-    if "ce_table" in st.session_state:
-        show_side_by_side(st.session_state["ce_table"], st.session_state["pe_table"])
-    else:
-        st.info("Enter your access token and click **Refresh LTP Now** to load data.")
-
-
-if __name__ == "__main__":
-    main()
+else:
+    st.error("Critical Error: NSE.json could not be loaded.")
