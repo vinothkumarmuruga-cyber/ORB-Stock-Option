@@ -387,7 +387,7 @@ def _fetch_single_orb_data(instrument_key, headers):
 
         if first_hour_range_pct >= 70:
             return instrument_key, None, (
-                f"First-hour range {first_hour_range_pct:.2f}% >= 25% - skipped (ORB filter)"
+                f"First-hour range {first_hour_range_pct:.2f}% >= 50% - skipped (ORB filter)"
             )
 
         tgt = trigger * 1.30
