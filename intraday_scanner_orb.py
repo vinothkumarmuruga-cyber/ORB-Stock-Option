@@ -92,10 +92,10 @@ def render_sidebar():
     st.sidebar.header("Telegram Alerts")
 
     telegram_enabled = st.sidebar.checkbox(
-        "Enable ORB Breakout Alerts",
+        "Enable Trigger-Cross Alerts",
         value=st.session_state.get("telegram_enabled", False),
         key="telegram_enabled",
-        help="Sends a Telegram message the moment an option's hourly candle confirms an ORB breakout."
+        help="Sends a Telegram message the moment an option's live price crosses its Trigger (first 1-hour candle high)."
     )
 
     telegram_bot_token = st.sidebar.text_input(
@@ -329,24 +329,21 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
 #             hourly candle closes; before that it reflects the
 #             developing high of the opening hour.
 #
-#   TGT     = Trigger x 1.30   (30% above Trigger)
-#   SL      = Trigger x 0.85   (15% below Trigger)
+#   TGT = Trigger, SL = Trigger — both equal to the Trigger itself.
+#         No multiplier, no separate levels.
 #
-#   Breakout is CONFIRMED on the first later hourly candle whose
-#   High >= Trigger. That's it — no SL/low condition attached to
-#   confirmation. SL is still shown in the table as a reference level,
-#   it just no longer gates the Breakout flag.
+#   No first-hour range filter, no confirming-candle condition.
+#   Every strike that has a valid first-hour high gets a Trigger.
 #
-#   FIRST-HOUR RANGE FILTER: the opening hour's own range
-#   ((High - Low) / Low x 100) must be BELOW 25%. If the first hour
-#   itself was too wild, the ORB level is considered unreliable and
-#   that strike is skipped entirely (no Trigger/TGT/SL computed).
+#   Breakout ("crossed") = live LTP >= Trigger, checked directly
+#   against the live price every refresh (computed in the main
+#   scanner below, not here).
 #
 # Uses Upstox's intraday historical-candle endpoint (unit=hours,
 # interval=1), which returns today's hourly candles including the
-# currently-forming one. Cached for a short 15s TTL per refresh cycle
-# so repeated auto-refreshes don't hammer the API, while still staying
-# effectively live.
+# currently-forming one, purely to read off the first hour's high.
+# Cached for a short 15s TTL per refresh cycle so repeated
+# auto-refreshes don't hammer the API.
 # ---------------------------------------------------------------------
 def _fetch_single_orb_data(instrument_key, headers):
     safe_key = quote(instrument_key, safe="|")
@@ -371,47 +368,16 @@ def _fetch_single_orb_data(instrument_key, headers):
 
         first_hour = candles_sorted[0]
         first_hour_high = first_hour[2]
-        first_hour_low = first_hour[3]
         trigger = first_hour_high  # high of the first 1-hour candle
 
         if trigger in (None, 0):
             return instrument_key, None, "First-hour candle has no valid high"
 
-        if first_hour_low in (None, 0):
-            return instrument_key, None, "First-hour candle has no valid low"
-
-        # First-hour range filter: skip this strike entirely if the
-        # opening hour itself moved 25% or more - too wild to trust
-        # as a breakout reference level.
-        first_hour_range_pct = ((first_hour_high - first_hour_low) / first_hour_low) * 100
-
-        if first_hour_range_pct >= 70:
-            return instrument_key, None, (
-                f"First-hour range {first_hour_range_pct:.2f}% >= 50% - skipped (ORB filter)"
-            )
-
-        tgt = trigger * 1.30
-        sl = trigger * 0.85
-
-        # Breakout confirmation: purely a Trigger cross on a later
-        # hourly candle's High. No SL/low condition involved.
-        breakout_candle = None
-        for candle in candles_sorted[1:]:
-            c_high = candle[2]
-            if c_high is None:
-                continue
-            if c_high >= trigger:
-                breakout_candle = candle
-                break  # first crossing candle only
-
         info = {
             "trigger": trigger,
-            "tgt": tgt,
-            "sl": sl,
-            "breakout_confirmed": breakout_candle is not None,
-            "breakout_time": breakout_candle[0] if breakout_candle else None,
+            "tgt": trigger,
+            "sl": trigger,
             "first_hour_complete": len(candles_sorted) >= 2,
-            "first_hour_range_pct": first_hour_range_pct,
         }
         return instrument_key, info, None
 
@@ -444,9 +410,9 @@ def fetch_orb_map(instrument_keys, headers_tuple):
 # ---------------------------------------------------------------------
 # Telegram Alerts
 #
-# Fires once per symbol, the moment its ORB breakout is CONFIRMED
-# (a later hourly candle's High crossed Trigger). State is tracked in
-# st.session_state so it doesn't re-alert on every refresh.
+# Fires once per symbol, the moment its live price crosses Trigger
+# (LTP >= Trigger). State is tracked in st.session_state so it
+# doesn't re-alert on every refresh.
 # ---------------------------------------------------------------------
 def send_telegram_alert(bot_token, chat_id, message):
     if not bot_token or not chat_id:
@@ -481,19 +447,18 @@ def check_and_alert_orb_breakouts(df, bot_token, chat_id):
     if not newly_confirmed:
         return
 
-    message_lines = ["🚀 <b>ORB Breakout Confirmed</b>"]
+    message_lines = ["🚀 <b>Trigger Crossed</b>"]
     for row in newly_confirmed:
         message_lines.append(
             f"\n<b>{row['Symbol']}</b>\n"
-            f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}\n"
-            f"TGT: {row['TGT']:.2f}   SL: {row['SL']:.2f}"
+            f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}"
         )
 
     message = "\n".join(message_lines)
     success, error = send_telegram_alert(bot_token, chat_id, message)
 
     if success:
-        st.sidebar.success(f"Telegram alert sent for {len(newly_confirmed)} breakout(s).")
+        st.sidebar.success(f"Telegram alert sent for {len(newly_confirmed)} trigger cross(es).")
     else:
         st.sidebar.warning(f"Telegram alert failed: {error}")
 
@@ -662,9 +627,8 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
     shortlisted = pd.concat([ce_candidates, pe_candidates], ignore_index=True)
 
     # -----------------------------------------------------------------
-    # ORB levels — first-hour High as Trigger, TGT/SL derived from it,
-    # breakout confirmed purely on a later candle's High crossing
-    # Trigger (no SL/low condition).
+    # ORB Trigger — first-hour High. TGT and SL are simply set equal
+    # to Trigger (no separate levels, no filters).
     # -----------------------------------------------------------------
     orb_map, orb_errors = fetch_orb_map(
         tuple(sorted(shortlisted["option_key"].unique())),
@@ -678,9 +642,6 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
     shortlisted["Trigger"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "trigger"))
     shortlisted["TGT"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "tgt"))
     shortlisted["SL"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "sl"))
-    shortlisted["BreakoutConfirmed"] = shortlisted["option_key"].apply(
-        lambda k: bool(_orb_field(k, "breakout_confirmed", False))
-    )
 
     shortlisted["Trigger"] = pd.to_numeric(shortlisted["Trigger"], errors="coerce")
 
@@ -701,7 +662,15 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
                 for err in orb_errors:
                     st.code(err)
 
-    shortlisted["Breakout"] = np.where(shortlisted["BreakoutConfirmed"], "✅", "—")
+    # -----------------------------------------------------------------
+    # Breakout ("crossed") = live LTP >= Trigger. No hourly-candle
+    # confirmation, no range filter — pure price cross, checked live.
+    # -----------------------------------------------------------------
+    shortlisted["Breakout"] = np.where(
+        (shortlisted["Trigger"].notna()) & (shortlisted["LTP"] >= shortlisted["Trigger"]),
+        "✅",
+        "—"
+    )
 
     shortlisted["Away %"] = np.where(
         shortlisted["Trigger"] > 0,
@@ -884,7 +853,7 @@ def main():
 
     if reset_alert_state_clicked:
         st.session_state["orb_alert_state"] = set()
-        st.sidebar.info("Alert state cleared — confirmed breakouts will alert again.")
+        st.sidebar.info("Alert state cleared — crossed triggers will alert again.")
 
     if test_telegram_clicked:
         success, error = send_telegram_alert(
@@ -927,8 +896,8 @@ def main():
             st.session_state["ce_table"] = ce_table
             st.session_state["pe_table"] = pe_table
 
-            # Check for confirmed ORB breakouts and alert on Telegram,
-            # once per symbol, only for the newly-confirmed ones.
+            # Check for price crossing Trigger and alert on Telegram,
+            # once per symbol, only for newly-crossed ones.
             if telegram_enabled:
                 combined = pd.concat([ce_table, pe_table], ignore_index=True)
                 check_and_alert_orb_breakouts(combined, telegram_bot_token, telegram_chat_id)
