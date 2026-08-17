@@ -16,7 +16,7 @@ except ImportError:
 INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
 IST = ZoneInfo("Asia/Kolkata")
 
-st.set_page_config(page_title="Intraday Scanner", layout="wide")
+st.set_page_config(page_title="ORB 1HR Scanner", layout="wide")
 
 # ---------------------------------------------------------------------
 # Tighten top spacing so the page starts higher / uses space better
@@ -324,8 +324,6 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
 # ---------------------------------------------------------------------
 # ORB (Opening Range Breakout) — 1-hour candle logic
 #
-# Replaces the previous PDL-based Trigger entirely.
-#
 #   Trigger = High of the FIRST 1-hour candle of the trading day
 #             (e.g. 9:15-10:15 IST). This locks in once that first
 #             hourly candle closes; before that it reflects the
@@ -334,16 +332,10 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
 #   TGT     = Trigger x 1.30   (30% above Trigger)
 #   SL      = Trigger x 0.85   (15% below Trigger)
 #
-#   Breakout is only CONFIRMED on the first later hourly candle where:
-#     - that candle's High >= Trigger   (it actually crossed Trigger)
-#     - that candle's Low  >= SL        (it did NOT undercut Trigger
-#                                         by more than 15% - i.e. the
-#                                         breakout candle's own low
-#                                         didn't fall below SL)
-#
-#   Example: first-hour High = 150 -> Trigger = 150, SL = 127.5.
-#   A later hourly candle that pokes above 150 but whose low drops to
-#   120 does NOT count as a confirmed breakout (it undercut SL).
+#   Breakout is CONFIRMED on the first later hourly candle whose
+#   High >= Trigger. That's it — no SL/low condition attached to
+#   confirmation. SL is still shown in the table as a reference level,
+#   it just no longer gates the Breakout flag.
 #
 #   FIRST-HOUR RANGE FILTER: the opening hour's own range
 #   ((High - Low) / Low x 100) must be BELOW 25%. If the first hour
@@ -393,7 +385,7 @@ def _fetch_single_orb_data(instrument_key, headers):
         # as a breakout reference level.
         first_hour_range_pct = ((first_hour_high - first_hour_low) / first_hour_low) * 100
 
-        if first_hour_range_pct >= 70:
+        if first_hour_range_pct >= 25:
             return instrument_key, None, (
                 f"First-hour range {first_hour_range_pct:.2f}% >= 25% - skipped (ORB filter)"
             )
@@ -401,14 +393,16 @@ def _fetch_single_orb_data(instrument_key, headers):
         tgt = trigger * 1.30
         sl = trigger * 0.85
 
+        # Breakout confirmation: purely a Trigger cross on a later
+        # hourly candle's High. No SL/low condition involved.
         breakout_candle = None
         for candle in candles_sorted[1:]:
-            c_high, c_low = candle[2], candle[3]
-            if c_high is None or c_low is None:
+            c_high = candle[2]
+            if c_high is None:
                 continue
-            if c_high >= trigger and c_low >= sl:
+            if c_high >= trigger:
                 breakout_candle = candle
-                break  # first valid confirming candle only
+                break  # first crossing candle only
 
         info = {
             "trigger": trigger,
@@ -451,8 +445,8 @@ def fetch_orb_map(instrument_keys, headers_tuple):
 # Telegram Alerts
 #
 # Fires once per symbol, the moment its ORB breakout is CONFIRMED
-# (the hourly candle both crossed Trigger and held above SL). State is
-# tracked in st.session_state so it doesn't re-alert on every refresh.
+# (a later hourly candle's High crossed Trigger). State is tracked in
+# st.session_state so it doesn't re-alert on every refresh.
 # ---------------------------------------------------------------------
 def send_telegram_alert(bot_token, chat_id, message):
     if not bot_token or not chat_id:
@@ -669,7 +663,8 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
 
     # -----------------------------------------------------------------
     # ORB levels — first-hour High as Trigger, TGT/SL derived from it,
-    # and breakout confirmation per the crossing-candle low rule.
+    # breakout confirmed purely on a later candle's High crossing
+    # Trigger (no SL/low condition).
     # -----------------------------------------------------------------
     orb_map, orb_errors = fetch_orb_map(
         tuple(sorted(shortlisted["option_key"].unique())),
@@ -868,7 +863,7 @@ def show_side_by_side(ce_table, pe_table):
 # App entry point
 # ---------------------------------------------------------------------
 def main():
-    st.title("Intraday Scanner — ORB Breakout")
+    st.title("ORB 1HR Scanner")
 
     (
         access_token,
@@ -895,7 +890,7 @@ def main():
         success, error = send_telegram_alert(
             telegram_bot_token,
             telegram_chat_id,
-            "✅ Test alert from Intraday Scanner — Telegram is wired up correctly."
+            "✅ Test alert from ORB 1HR Scanner — Telegram is wired up correctly."
         )
         if success:
             st.sidebar.success("Test message sent — check Telegram.")
