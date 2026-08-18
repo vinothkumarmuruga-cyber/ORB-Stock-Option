@@ -381,6 +381,13 @@ def check_and_alert_triggers(df, key_suffix, telegram_enabled, bot_token, chat_i
         st.sidebar.warning(f"Telegram alert failed: {error}")
 
 
+# The first 1-hour candle (9:15-10:15 IST) is only fully formed once
+# the clock passes 10:15 IST. ORB alerts are gated on this cutoff so
+# we never fire off a "crossed" alert against a trigger level that's
+# still being formed intra-candle.
+ORB_ALERT_CUTOFF = datetime.strptime("10:15", "%H:%M").time()
+
+
 def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     """
     1HR BO tab: alerts the moment an option's live LTP crosses its
@@ -388,10 +395,16 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     alert-state file as the Intraday tab (tagged "1HR BO:<symbol>").
     The crossed flag is checked internally here even though the
     Breakout column itself is no longer shown in the table.
+
+    Only fires after 10:15 IST, once the first-hour candle has
+    actually closed and the Trigger level is final.
     """
     if not telegram_enabled:
         return
     if df.empty:
+        return
+
+    if get_ist_now().time() < ORB_ALERT_CUTOFF:
         return
 
     alerted = load_trigger_alert_state()
@@ -834,6 +847,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
 #   TGT = Trigger + 35%, SL = Trigger - 20%.
 #   "Crossed" = live LTP >= Trigger (used only to fire the
 #   Telegram alert — no Breakout column shown in the table).
+#   Alerts only fire after 10:15 IST (see ORB_ALERT_CUTOFF above).
 # ============================================================
 
 def fetch_future_open_v3(instrument_keys, headers):
@@ -1292,7 +1306,7 @@ else:
             "Enable Trigger Alerts",
             value=st.session_state.get("telegram_enabled", False),
             key="telegram_enabled",
-            help="Sends a Telegram message the moment either tab's option LTP crosses its Trigger price."
+            help="Sends a Telegram message the moment either tab's option LTP crosses its Trigger price. 1HR BO alerts only fire after 10:15 IST."
         )
 
         telegram_bot_token = st.text_input(
