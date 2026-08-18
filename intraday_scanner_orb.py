@@ -137,6 +137,7 @@ TOKEN_FILE = os.path.join(DATA_DIR, "token.json")
 META_FILE = os.path.join(DATA_DIR, "meta.json")
 LTP_CACHE_FILE = os.path.join(DATA_DIR, "ltp_cache.json")
 TRIGGER_ALERT_FILE = os.path.join(DATA_DIR, "trigger_alert_state.json")
+ALERT_LOG_FILE = os.path.join(DATA_DIR, "alert_log.csv")
 
 
 FILES = {
@@ -313,6 +314,28 @@ def save_trigger_alert_state(keys):
         pass
 
 
+# ============================================================
+# ALERT LOG (CSV) — every fired alert (Intraday R4 or 1HR BO) gets one
+# row here: when it crossed, at what LTP, and what the Trigger/TGT/SL
+# levels were at that moment. Lets you go back later and check whether
+# price actually reached TGT before SL, instead of trusting the fixed
+# TGT/SL percentages blind.
+# ============================================================
+
+def log_alert_event(tab, symbol, ltp, trigger, tgt=None, sl=None):
+    try:
+        is_new = not os.path.exists(ALERT_LOG_FILE)
+        with open(ALERT_LOG_FILE, "a", newline="") as f:
+            if is_new:
+                f.write("timestamp_ist,tab,symbol,ltp,trigger,tgt,sl\n")
+            ts = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
+            tgt_str = f"{tgt:.2f}" if tgt is not None else ""
+            sl_str = f"{sl:.2f}" if sl is not None else ""
+            f.write(f"{ts},{tab},{symbol},{ltp:.2f},{trigger:.2f},{tgt_str},{sl_str}\n")
+    except Exception:
+        pass
+
+
 def send_telegram_alert(bot_token, chat_id, message):
     if not bot_token or not chat_id:
         return False, "Missing bot token or chat ID"
@@ -357,28 +380,45 @@ def check_and_alert_triggers(df, key_suffix, telegram_enabled, bot_token, chat_i
             continue
 
         if change_pct >= 100 and alert_id not in alerted:
-            newly_triggered.append(row)
-            alerted.add(alert_id)
+            newly_triggered.append((alert_id, row))
 
     if not newly_triggered:
         return
 
-    message_lines = [f"🚀 <b>R4 Trigger Crossed — {key_suffix}</b>"]
-    for row in newly_triggered:
-        message_lines.append(
-            f"\n<b>{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}</b>\n"
+    # One Telegram message per option, sent and persisted independently.
+    # If one send fails (bad formatting, transient network issue, etc.)
+    # it no longer blocks or gets rolled back with the rest of the batch
+    # — every other option in this batch still alerts and gets recorded.
+    sent_count = 0
+    fail_count = 0
+
+    for alert_id, row in newly_triggered:
+        message = (
+            f"🚀 <b>R4 Trigger Crossed — {key_suffix}</b>\n\n"
+            f"<b>{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}</b>\n"
             f"LTP: {row['ltp']:.2f}  ›  Cam R4: {row['Trigger']:.2f}\n"
             f"Change: {row['change %']:.2f}%"
         )
 
-    message = "\n".join(message_lines)
-    success, error = send_telegram_alert(bot_token, chat_id, message)
+        success, error = send_telegram_alert(bot_token, chat_id, message)
 
-    if success:
-        save_trigger_alert_state(alerted)
-        st.toast(f"Telegram alert sent for {len(newly_triggered)} trigger cross(es) on {key_suffix}.", icon="🚀")
-    else:
-        st.toast(f"Telegram alert failed: {error}", icon="⚠️")
+        if success:
+            alerted.add(alert_id)
+            save_trigger_alert_state(alerted)
+            log_alert_event(
+                key_suffix,
+                f"{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}",
+                row['ltp'],
+                row['Trigger']
+            )
+            sent_count += 1
+        else:
+            fail_count += 1
+
+    if sent_count:
+        st.toast(f"Telegram alert sent for {sent_count} trigger cross(es) on {key_suffix}.", icon="🚀")
+    if fail_count:
+        st.toast(f"{fail_count} Telegram alert(s) failed on {key_suffix} — will retry next refresh.", icon="⚠️")
 
 
 # The first 1-hour candle (9:15-10:15 IST) is only fully formed once
@@ -418,27 +458,46 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
         alert_id = f"1HR BO:{symbol}"
 
         if row.get("_crossed") and alert_id not in alerted:
-            newly_triggered.append(row)
-            alerted.add(alert_id)
+            newly_triggered.append((alert_id, row))
 
     if not newly_triggered:
         return
 
-    message_lines = ["🚀 <b>1HR BO — Trigger Crossed</b>"]
-    for row in newly_triggered:
-        message_lines.append(
-            f"\n<b>{row['Symbol']}</b>\n"
-            f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}"
+    # One Telegram message per option — same reasoning as the Intraday
+    # tab above. Also logs each fired alert (LTP/Trigger/TGT/SL at the
+    # moment of crossing) to the CSV alert log for later TGT/SL review.
+    sent_count = 0
+    fail_count = 0
+
+    for alert_id, row in newly_triggered:
+        message = (
+            "🚀 <b>1HR BO — Trigger Crossed</b>\n\n"
+            f"<b>{row['Symbol']}</b>\n"
+            f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}\n"
+            f"TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}"
         )
 
-    message = "\n".join(message_lines)
-    success, error = send_telegram_alert(bot_token, chat_id, message)
+        success, error = send_telegram_alert(bot_token, chat_id, message)
 
-    if success:
-        save_trigger_alert_state(alerted)
-        st.toast(f"Telegram alert sent for {len(newly_triggered)} 1HR BO cross(es).", icon="🚀")
-    else:
-        st.toast(f"Telegram alert failed: {error}", icon="⚠️")
+        if success:
+            alerted.add(alert_id)
+            save_trigger_alert_state(alerted)
+            log_alert_event(
+                "1HR BO",
+                row['Symbol'],
+                row['LTP'],
+                row['Trigger'],
+                tgt=row.get('TGT'),
+                sl=row.get('SL')
+            )
+            sent_count += 1
+        else:
+            fail_count += 1
+
+    if sent_count:
+        st.toast(f"Telegram alert sent for {sent_count} 1HR BO cross(es).", icon="🚀")
+    if fail_count:
+        st.toast(f"{fail_count} 1HR BO alert(s) failed — will retry next refresh.", icon="⚠️")
 
 
 # ============================================================
@@ -1042,7 +1101,7 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     return result, sample_errors
 
 
-def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=0):
+def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=0, min_lots=0):
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -1187,13 +1246,14 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
     result = shortlisted[[
-        "Symbol", "Open", "LTP", "Trigger", "Away %", "TGT", "SL", "_crossed", "Vol", "Lot", "Capital Required"
+        "Symbol", "Open", "LTP", "Trigger", "Away %", "TGT", "SL", "_crossed", "Vol", "Ctr", "Lot", "Capital Required"
     ]].copy()
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %"]:
         result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
 
     result["Vol"] = pd.to_numeric(result["Vol"], errors="coerce").fillna(0).astype(int)
+    result["Ctr"] = pd.to_numeric(result["Ctr"], errors="coerce").fillna(0).astype(int)
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
     result["Capital Required"] = pd.to_numeric(result["Capital Required"], errors="coerce").round(0).fillna(0).astype(int)
 
@@ -1203,12 +1263,16 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
     # diagnostics expander above already explains why the rest are missing.
     result = result[result["Trigger"].notna()].reset_index(drop=True)
 
-    # Volume filter ("Strong BO") — a strike can show a big Away % purely
-    # from one or two stale/illiquid trades. Filtering on today's traded
-    # volume weeds those out so what's left is breakouts with real
-    # participation behind them. min_volume=0 disables the filter.
+    # Volume / Lots filter ("Strong BO") — a strike can show a big Away %
+    # purely from one or two stale/illiquid trades. Filtering on today's
+    # traded volume (or lots traded — Ctr = Vol / Lot, comparable across
+    # stocks with very different lot sizes) weeds those out so what's
+    # left is breakouts with real participation behind them. A value of
+    # 0 disables that particular filter.
     if min_volume > 0:
         result = result[result["Vol"] >= min_volume].reset_index(drop=True)
+    if min_lots > 0:
+        result = result[result["Ctr"] >= min_lots].reset_index(drop=True)
 
     ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
     pe_table = result[result["Symbol"].str.endswith("PE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
@@ -1233,7 +1297,7 @@ DECIMAL_COLS = {
 
 # Columns actually rendered in the 1HR BO table — "_crossed" (the
 # internal alert flag) is deliberately excluded.
-DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "TGT", "SL", "Vol", "Lot", "Capital Required"]
+DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "TGT", "SL", "Vol", "Ctr", "Lot", "Capital Required"]
 
 
 def style_away_percent(value):
@@ -1321,6 +1385,7 @@ if is_client_view:
     refresh_interval = 15
     expiry_type = "Current Month"
     min_volume = 0
+    min_lots = 0
 
     telegram_bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
@@ -1350,16 +1415,28 @@ else:
         st.header("1HR BO Filters")
 
         min_volume = st.number_input(
-            "Min Volume (Strong BO filter)",
+            "Min Volume — shares (Strong BO filter)",
             min_value=0,
             value=0,
             step=50000,
             help=(
                 "Hides options from the 1HR BO tables whose today's traded "
-                "volume is below this. A big Away % can come from one stale "
-                "or illiquid trade — filtering on volume keeps only "
-                "breakouts with real participation behind them. Set 0 to "
-                "disable the filter."
+                "volume (in shares) is below this. Set 0 to disable."
+            )
+        )
+
+        min_lots = st.number_input(
+            "Min Lots traded — Ctr (Strong BO filter)",
+            min_value=0,
+            value=0,
+            step=50,
+            help=(
+                "Hides options whose today's traded Lots (Ctr = Volume / "
+                "Lot size) is below this. Lot sizes vary a lot across "
+                "stocks (25 to a few thousand shares), so filtering by "
+                "lots traded is a fairer 'strong participation' measure "
+                "across different stocks than a flat volume threshold. "
+                "Set 0 to disable. Use either filter, or both together."
             )
         )
 
@@ -1503,10 +1580,17 @@ if not nse_json_df.empty:
         else:
             @st.fragment(run_every=run_every)
             def show_1hr_bo():
-                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=50, min_volume=min_volume)
+                ce_table, pe_table = build_open_strike_scanner(
+                    access_token, expiry_type, top_n=50, min_volume=min_volume, min_lots=min_lots
+                )
 
+                filter_notes = []
                 if min_volume > 0:
-                    st.caption(f"Strong BO filter active — showing only options with Vol ≥ {min_volume:,}")
+                    filter_notes.append(f"Vol ≥ {min_volume:,}")
+                if min_lots > 0:
+                    filter_notes.append(f"Lots ≥ {min_lots:,}")
+                if filter_notes:
+                    st.caption("Strong BO filter active — showing only options with " + " and ".join(filter_notes))
 
                 if not ce_table.empty or not pe_table.empty:
                     if telegram_enabled:
