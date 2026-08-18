@@ -1042,7 +1042,7 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     return result, sample_errors
 
 
-def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
+def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=0):
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -1203,6 +1203,13 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
     # diagnostics expander above already explains why the rest are missing.
     result = result[result["Trigger"].notna()].reset_index(drop=True)
 
+    # Volume filter ("Strong BO") — a strike can show a big Away % purely
+    # from one or two stale/illiquid trades. Filtering on today's traded
+    # volume weeds those out so what's left is breakouts with real
+    # participation behind them. min_volume=0 disables the filter.
+    if min_volume > 0:
+        result = result[result["Vol"] >= min_volume].reset_index(drop=True)
+
     ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
     pe_table = result[result["Symbol"].str.endswith("PE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
 
@@ -1313,6 +1320,7 @@ if is_client_view:
     auto_refresh = True
     refresh_interval = 15
     expiry_type = "Current Month"
+    min_volume = 0
 
     telegram_bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
@@ -1336,6 +1344,23 @@ else:
             options=["Current Month", "Next Month"],
             index=0,
             help="Used by the 1HR BO tab. Intraday tab always uses the nearest expiry."
+        )
+
+        st.markdown("---")
+        st.header("1HR BO Filters")
+
+        min_volume = st.number_input(
+            "Min Volume (Strong BO filter)",
+            min_value=0,
+            value=0,
+            step=50000,
+            help=(
+                "Hides options from the 1HR BO tables whose today's traded "
+                "volume is below this. A big Away % can come from one stale "
+                "or illiquid trade — filtering on volume keeps only "
+                "breakouts with real participation behind them. Set 0 to "
+                "disable the filter."
+            )
         )
 
         st.markdown("---")
@@ -1478,7 +1503,10 @@ if not nse_json_df.empty:
         else:
             @st.fragment(run_every=run_every)
             def show_1hr_bo():
-                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=50)
+                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=50, min_volume=min_volume)
+
+                if min_volume > 0:
+                    st.caption(f"Strong BO filter active — showing only options with Vol ≥ {min_volume:,}")
 
                 if not ce_table.empty or not pe_table.empty:
                     if telegram_enabled:
