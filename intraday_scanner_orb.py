@@ -777,7 +777,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
     calls_display = calls_df.rename(columns={"Trigger": "Cam R4"})
     puts_display = puts_df.rename(columns={"Trigger": "Cam R4"})
 
-    display_cols = ["Symbol", "StrikePrice", "Trigger", "TGT", "SL", "ltp", "change %"]
+    display_cols = ["Symbol", "StrikePrice", "Cam R4", "TGT", "SL", "ltp", "change %"]
 
     def color_change(val):
         try:
@@ -792,7 +792,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
 
     format_dict = {
         "change %": "{:.2f}%",
-        "Trigger": "{:.2f}",
+        "Cam R4": "{:.2f}",
         "TGT": "{:.2f}",
         "SL": "{:.2f}",
         "ltp": "{:.2f}",
