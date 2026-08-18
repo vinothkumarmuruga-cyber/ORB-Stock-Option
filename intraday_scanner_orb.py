@@ -955,38 +955,54 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
     return chain.sort_values("strike_diff").iloc[0]
 
 
-def _fetch_single_orb_data(instrument_key, headers):
+def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
     safe_key = quote(instrument_key, safe="|")
     url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1"
 
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
+    attempt = 0
+    while True:
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
 
-        if response.status_code != 200:
-            return instrument_key, None, f"HTTP {response.status_code}: {response.text[:200]}"
+            if response.status_code == 429:
+                # Rate limited (Cloudflare in front of Upstox). Back off and
+                # retry a couple of times before giving up on this instrument.
+                if attempt < max_retries:
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        wait_s = float(retry_after) if retry_after else (1.5 * (attempt + 1))
+                    except ValueError:
+                        wait_s = 1.5 * (attempt + 1)
+                    time.sleep(min(wait_s, 5))
+                    attempt += 1
+                    continue
+                return instrument_key, None, "HTTP 429: Rate limited (gave up after retries)"
 
-        payload = response.json()
-        candles = payload.get("data", {}).get("candles", [])
+            if response.status_code != 200:
+                return instrument_key, None, f"HTTP {response.status_code}: {response.text[:200]}"
 
-        if not candles:
-            return instrument_key, None, "No intraday hourly candles yet today"
+            payload = response.json()
+            candles = payload.get("data", {}).get("candles", [])
 
-        candles_sorted = sorted(candles, key=lambda c: c[0])
+            if not candles:
+                return instrument_key, None, "No intraday hourly candles yet today"
 
-        first_hour = candles_sorted[0]
-        first_hour_high = first_hour[2]
-        trigger = first_hour_high
+            candles_sorted = sorted(candles, key=lambda c: c[0])
 
-        if trigger in (None, 0):
-            return instrument_key, None, "First-hour candle has no valid high"
+            first_hour = candles_sorted[0]
+            first_hour_high = first_hour[2]
+            trigger = first_hour_high
 
-        info = {
-            "trigger": trigger,
-        }
-        return instrument_key, info, None
+            if trigger in (None, 0):
+                return instrument_key, None, "First-hour candle has no valid high"
 
-    except Exception as e:
-        return instrument_key, None, f"Exception: {e}"
+            info = {
+                "trigger": trigger,
+            }
+            return instrument_key, info, None
+
+        except Exception as e:
+            return instrument_key, None, f"Exception: {e}"
 
 
 @st.cache_data(ttl=15, show_spinner="Computing 1HR BO trigger levels...")
@@ -995,19 +1011,33 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     result = {}
     sample_errors = []
 
-    # Sized for the top-50-per-side shortlist (~100 instruments per cycle).
-    with ThreadPoolExecutor(max_workers=12) as executor:
-        futures = {
-            executor.submit(_fetch_single_orb_data, key, headers): key
-            for key in instrument_keys
-        }
+    instrument_keys = list(instrument_keys)
 
-        for future in as_completed(futures):
-            key, info, error = future.result()
-            result[key] = info
+    # Fetching the ORB candle for ~100 instruments at once was hitting
+    # Cloudflare's rate limiter (HTTP 429) in front of Upstox. Spread the
+    # requests out: modest concurrency (5 at a time) processed in small
+    # batches with a short pause between batches, instead of firing
+    # everything at once with 12 workers.
+    batch_size = 10
+    pause_between_batches = 0.6
 
-            if error and len(sample_errors) < 5:
-                sample_errors.append(f"{key} -> {error}")
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for i in range(0, len(instrument_keys), batch_size):
+            batch = instrument_keys[i:i + batch_size]
+            futures = {
+                executor.submit(_fetch_single_orb_data, key, headers): key
+                for key in batch
+            }
+
+            for future in as_completed(futures):
+                key, info, error = future.result()
+                result[key] = info
+
+                if error and len(sample_errors) < 5:
+                    sample_errors.append(f"{key} -> {error}")
+
+            if i + batch_size < len(instrument_keys):
+                time.sleep(pause_between_batches)
 
     return result, sample_errors
 
@@ -1135,10 +1165,10 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
 
     if missing_count > 0:
         with st.expander(
-            f"⚠️ 1HR BO Trigger not yet available for {missing_count}/{total_count} options",
+            f"⚠️ 1HR BO Trigger not available for {missing_count}/{total_count} options (hidden from table below)",
             expanded=(missing_count == total_count)
         ):
-            st.write("Normal before the first hourly candle (9:15-10:15 IST) has data yet.")
+            st.write("Normal before the first hourly candle (9:15-10:15 IST) has data yet. Can also happen if the API rate-limited some requests — those will retry on the next refresh.")
             if orb_errors:
                 for err in orb_errors:
                     st.code(err)
@@ -1166,6 +1196,12 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
     result["Vol"] = pd.to_numeric(result["Vol"], errors="coerce").fillna(0).astype(int)
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
     result["Capital Required"] = pd.to_numeric(result["Capital Required"], errors="coerce").round(0).fillna(0).astype(int)
+
+    # Hide rows with no Trigger (ORB level not fetched yet — before
+    # 10:15 IST, or dropped due to a rate-limited/failed API call). Only
+    # options with an actual computed Trigger/TGT/SL get plotted; the
+    # diagnostics expander above already explains why the rest are missing.
+    result = result[result["Trigger"].notna()].reset_index(drop=True)
 
     ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
     pe_table = result[result["Symbol"].str.endswith("PE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
@@ -1442,7 +1478,7 @@ if not nse_json_df.empty:
         else:
             @st.fragment(run_every=run_every)
             def show_1hr_bo():
-                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=40)
+                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=50)
 
                 if not ce_table.empty or not pe_table.empty:
                     if telegram_enabled:
