@@ -995,7 +995,9 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     result = {}
     sample_errors = []
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    # Higher worker count than before since we now fetch the ORB candle for
+    # every stock's ATM CE+PE (no top-20 cutoff), not just ~40 instruments.
+    with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {
             executor.submit(_fetch_single_orb_data, key, headers): key
             for key in instrument_keys
@@ -1011,7 +1013,7 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     return result, sample_errors
 
 
-def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
+def build_open_strike_scanner(access_token, expiry_choice):
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -1107,8 +1109,12 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
 
     selected = selected.rename(columns={"ltp": "LTP", "volume": "Vol", "Capital": "Capital Required"})
 
-    ce_candidates = selected[selected["Symbol"].str.endswith("CE")].sort_values("Chg%", ascending=False).head(top_n)
-    pe_candidates = selected[selected["Symbol"].str.endswith("PE")].sort_values("Chg%", ascending=False).head(top_n)
+    # No top-N cutoff — every stock's ATM CE and ATM PE (one strike each,
+    # nearest to today's future-open price) is tracked, not just the
+    # biggest day-Chg% gainers. Still sorted by Chg% (best gainer first)
+    # for a sensible default row order.
+    ce_candidates = selected[selected["Symbol"].str.endswith("CE")].sort_values("Chg%", ascending=False)
+    pe_candidates = selected[selected["Symbol"].str.endswith("PE")].sort_values("Chg%", ascending=False)
     shortlisted = pd.concat([ce_candidates, pe_candidates], ignore_index=True)
 
     orb_map, orb_errors = fetch_orb_map(
@@ -1439,7 +1445,7 @@ if not nse_json_df.empty:
         else:
             @st.fragment(run_every=run_every)
             def show_1hr_bo():
-                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=20)
+                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type)
 
                 if not ce_table.empty or not pe_table.empty:
                     if telegram_enabled:
