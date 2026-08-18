@@ -32,7 +32,7 @@ def get_ist_now():
 # ============================================================
 
 st.set_page_config(
-    page_title="Stock Option Scanner",
+    page_title="R4 And 1 HR Scanner",
     layout="wide"
 )
 
@@ -363,7 +363,7 @@ def check_and_alert_triggers(df, key_suffix, telegram_enabled, bot_token, chat_i
     if not newly_triggered:
         return
 
-    message_lines = [f"🚀 <b>Trigger Crossed — {key_suffix}</b>"]
+    message_lines = [f"🚀 <b>R4 Trigger Crossed — {key_suffix}</b>"]
     for row in newly_triggered:
         message_lines.append(
             f"\n<b>{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}</b>\n"
