@@ -376,9 +376,9 @@ def check_and_alert_triggers(df, key_suffix, telegram_enabled, bot_token, chat_i
 
     if success:
         save_trigger_alert_state(alerted)
-        st.sidebar.success(f"Telegram alert sent for {len(newly_triggered)} trigger cross(es) on {key_suffix}.")
+        st.toast(f"Telegram alert sent for {len(newly_triggered)} trigger cross(es) on {key_suffix}.", icon="🚀")
     else:
-        st.sidebar.warning(f"Telegram alert failed: {error}")
+        st.toast(f"Telegram alert failed: {error}", icon="⚠️")
 
 
 # The first 1-hour candle (9:15-10:15 IST) is only fully formed once
@@ -436,9 +436,9 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
 
     if success:
         save_trigger_alert_state(alerted)
-        st.sidebar.success(f"Telegram alert sent for {len(newly_triggered)} 1HR BO cross(es).")
+        st.toast(f"Telegram alert sent for {len(newly_triggered)} 1HR BO cross(es).", icon="🚀")
     else:
-        st.sidebar.warning(f"Telegram alert failed: {error}")
+        st.toast(f"Telegram alert failed: {error}", icon="⚠️")
 
 
 # ============================================================
@@ -822,7 +822,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
             .format(format_dict)
             .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=1800
         )
 
@@ -834,7 +834,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
             .format(format_dict)
             .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=1800
         )
 
@@ -1240,7 +1240,7 @@ def show_side_by_side(ce_table, pe_table):
                 .pipe(apply_column_tints, CE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
             )
-            st.dataframe(ce_style, use_container_width=True, hide_index=True, height=table_height(ce_table))
+            st.dataframe(ce_style, width="stretch", hide_index=True, height=table_height(ce_table))
 
     with col2:
         st.markdown("**Puts (PE)**")
@@ -1253,7 +1253,7 @@ def show_side_by_side(ce_table, pe_table):
                 .pipe(apply_column_tints, PE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
             )
-            st.dataframe(pe_style, use_container_width=True, hide_index=True, height=table_height(pe_table))
+            st.dataframe(pe_style, width="stretch", hide_index=True, height=table_height(pe_table))
 
 
 # ============================================================
@@ -1325,8 +1325,8 @@ else:
         )
 
         tg_col1, tg_col2 = st.columns(2)
-        test_telegram_clicked = tg_col1.button("Send Test", use_container_width=True)
-        reset_alert_state_clicked = tg_col2.button("Reset Alerts", use_container_width=True)
+        test_telegram_clicked = tg_col1.button("Send Test", width="stretch")
+        reset_alert_state_clicked = tg_col2.button("Reset Alerts", width="stretch")
 
         if reset_alert_state_clicked:
             save_trigger_alert_state(set())
@@ -1346,7 +1346,7 @@ else:
         st.markdown("---")
         st.header("Data Management")
 
-        if st.button("⚡ Refresh LTP Now", use_container_width=True):
+        if st.button("⚡ Refresh LTP Now", width="stretch"):
             st.session_state["force_refresh_ltp"] = True
             st.rerun()
 
