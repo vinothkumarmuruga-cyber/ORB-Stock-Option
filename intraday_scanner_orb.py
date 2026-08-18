@@ -138,11 +138,88 @@ META_FILE = os.path.join(DATA_DIR, "meta.json")
 LTP_CACHE_FILE = os.path.join(DATA_DIR, "ltp_cache.json")
 TRIGGER_ALERT_FILE = os.path.join(DATA_DIR, "trigger_alert_state.json")
 ALERT_LOG_FILE = os.path.join(DATA_DIR, "alert_log.csv")
+CROSSED_SINCE_FILE = os.path.join(DATA_DIR, "crossed_since.json")
 
 
 FILES = {
     "Intraday": os.path.join(DATA_DIR, "intraday.csv")
 }
+
+
+# ============================================================
+# OPTIONAL EXTERNAL PERSISTENCE (GitHub Gist)
+#
+# Local disk under DATA_DIR is NOT reliable on Streamlit Cloud — the
+# container (and everything on its filesystem) gets wiped on restarts,
+# redeploys, or after a period of inactivity. That means the Upstox
+# token and, worse, the Telegram alert-dedup state can silently reset
+# mid-day, causing duplicate alerts.
+#
+# If you add these two secrets in .streamlit/secrets.toml (or the
+# Streamlit Cloud secrets UI), the token and alert-dedup state are
+# additionally backed up to a private GitHub Gist, which survives
+# app restarts:
+#
+#   GITHUB_GIST_TOKEN = "ghp_xxx..."   # PAT with the "gist" scope
+#   GITHUB_GIST_ID    = "abcdef123..."  # id of an existing (empty) gist
+#
+# To create the gist: go to https://gist.github.com/, add any one
+# file (e.g. "placeholder.txt" with any content), save it as a
+# SECRET gist, then copy the id from its URL
+# (https://gist.github.com/<username>/<THIS PART>).
+#
+# Without these secrets set, everything falls back to local-disk-only
+# behavior exactly as before — nothing breaks if you skip this.
+# ============================================================
+
+GIST_TOKEN = st.secrets.get("GITHUB_GIST_TOKEN", "")
+GIST_ID = st.secrets.get("GITHUB_GIST_ID", "")
+USE_GIST_PERSISTENCE = bool(GIST_TOKEN and GIST_ID)
+
+
+def _gist_headers():
+    return {
+        "Authorization": f"token {GIST_TOKEN}",
+        "Accept": "application/vnd.github+json"
+    }
+
+
+def _gist_read_file(filename):
+    """Returns the raw text content of one file inside the configured
+    Gist, or None if not configured / not found / on any error."""
+    if not USE_GIST_PERSISTENCE:
+        return None
+    try:
+        resp = requests.get(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers=_gist_headers(),
+            timeout=10
+        )
+        if resp.status_code != 200:
+            return None
+        file_info = resp.json().get("files", {}).get(filename)
+        return file_info.get("content") if file_info else None
+    except Exception:
+        return None
+
+
+def _gist_write_file(filename, content_str):
+    """Writes (creates/overwrites) one file inside the configured Gist.
+    Returns True on success, False otherwise (including if not
+    configured) — callers should treat this as best-effort."""
+    if not USE_GIST_PERSISTENCE:
+        return False
+    try:
+        payload = {"files": {filename: {"content": content_str}}}
+        resp = requests.patch(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers=_gist_headers(),
+            json=payload,
+            timeout=10
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 # ============================================================
@@ -225,31 +302,56 @@ def extract_csv_from_zip(zip_file):
 
 
 # ============================================================
-# TOKEN
+# TOKEN — local disk first (fast), Gist as durable backup/fallback
 # ============================================================
 
 def load_token():
+    today_str = get_ist_now().strftime("%Y-%m-%d")
+
     if os.path.exists(TOKEN_FILE):
         try:
             with open(TOKEN_FILE, "r") as f:
                 data = json.load(f)
-                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
+                if data.get("date") == today_str:
                     return data.get("token", "")
         except:
             pass
+
+    # Local copy missing/stale (likely a fresh container after a restart)
+    # — try the Gist backup before giving up.
+    if USE_GIST_PERSISTENCE:
+        raw = _gist_read_file("token.json")
+        if raw:
+            try:
+                data = json.loads(raw)
+                if data.get("date") == today_str:
+                    # Warm the local cache too, so we don't hit the Gist
+                    # API again this session.
+                    try:
+                        with open(TOKEN_FILE, "w") as f:
+                            json.dump(data, f)
+                    except:
+                        pass
+                    return data.get("token", "")
+            except Exception:
+                pass
+
     return ""
 
 
 def save_token(token):
+    data = {
+        "date": get_ist_now().strftime("%Y-%m-%d"),
+        "token": token
+    }
     try:
-        data = {
-            "date": get_ist_now().strftime("%Y-%m-%d"),
-            "token": token
-        }
         with open(TOKEN_FILE, "w") as f:
             json.dump(data, f)
     except:
         pass
+
+    if USE_GIST_PERSISTENCE:
+        _gist_write_file("token.json", json.dumps(data))
 
 
 # ============================================================
@@ -281,9 +383,68 @@ def save_blacklist(keys):
 
 
 # ============================================================
+# CROSSED-SINCE TRACKER (1HR BO tab)
+#
+# Records the first moment each option was seen with LTP >= Trigger
+# today, so the table can show "how long ago" a breakout happened
+# instead of just a static "crossed / not crossed" flag. Once a
+# symbol's first-cross time is recorded it's never overwritten again
+# that day, even if the option later pulls back below Trigger. Local
+# disk only (not backed by the Gist) — losing this on a rare restart
+# just resets the "since" clock for that symbol, it doesn't cause
+# duplicate alerts or any other correctness issue.
+# ============================================================
+
+def load_crossed_since():
+    if os.path.exists(CROSSED_SINCE_FILE):
+        try:
+            with open(CROSSED_SINCE_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
+                    return data.get("times", {})
+        except:
+            pass
+    return {}
+
+
+def save_crossed_since(times):
+    try:
+        data = {
+            "date": get_ist_now().strftime("%Y-%m-%d"),
+            "times": times
+        }
+        with open(CROSSED_SINCE_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
+
+
+def format_since(iso_timestamp):
+    """'12m ago' / '1h 5m ago' style label for a crossed-since timestamp."""
+    if not iso_timestamp:
+        return "-"
+    try:
+        crossed_dt = datetime.fromisoformat(iso_timestamp)
+    except Exception:
+        return "-"
+
+    delta_minutes = int((get_ist_now() - crossed_dt).total_seconds() // 60)
+    if delta_minutes < 1:
+        return "just now"
+    if delta_minutes < 60:
+        return f"{delta_minutes}m ago"
+    hours, minutes = divmod(delta_minutes, 60)
+    return f"{hours}h {minutes}m ago"
+
+
+# ============================================================
 # TELEGRAM TRIGGER-ALERT STATE (shared across both tabs)
 #
-# Persisted to disk so alert de-duplication survives restarts.
+# Persisted to disk (and, if configured, to the Gist backup — see the
+# "OPTIONAL EXTERNAL PERSISTENCE" section above) so alert
+# de-duplication survives restarts. Without a durable backup, a
+# Streamlit Cloud restart mid-day wipes this file and can cause
+# duplicate Telegram alerts for options that already fired earlier.
 # Resets automatically each new trading day. Each entry is
 # "<tab>:<id>" so Intraday / 1HR BO track their own alert
 # history independently, but a single Reset Alerts button in
@@ -291,27 +452,51 @@ def save_blacklist(keys):
 # ============================================================
 
 def load_trigger_alert_state():
+    today_str = get_ist_now().strftime("%Y-%m-%d")
+
     if os.path.exists(TRIGGER_ALERT_FILE):
         try:
             with open(TRIGGER_ALERT_FILE, "r") as f:
                 data = json.load(f)
-                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
+                if data.get("date") == today_str:
                     return set(data.get("keys", []))
         except:
             pass
+
+    # Local copy missing/stale — likely a fresh container after a
+    # restart. Try the Gist backup before falling back to empty.
+    if USE_GIST_PERSISTENCE:
+        raw = _gist_read_file("trigger_alert_state.json")
+        if raw:
+            try:
+                data = json.loads(raw)
+                if data.get("date") == today_str:
+                    keys = set(data.get("keys", []))
+                    try:
+                        with open(TRIGGER_ALERT_FILE, "w") as f:
+                            json.dump({"date": today_str, "keys": list(keys)}, f)
+                    except:
+                        pass
+                    return keys
+            except Exception:
+                pass
+
     return set()
 
 
 def save_trigger_alert_state(keys):
+    data = {
+        "date": get_ist_now().strftime("%Y-%m-%d"),
+        "keys": list(keys)
+    }
     try:
-        data = {
-            "date": get_ist_now().strftime("%Y-%m-%d"),
-            "keys": list(keys)
-        }
         with open(TRIGGER_ALERT_FILE, "w") as f:
             json.dump(data, f)
     except:
         pass
+
+    if USE_GIST_PERSISTENCE:
+        _gist_write_file("trigger_alert_state.json", json.dumps(data))
 
 
 # ============================================================
@@ -322,18 +507,44 @@ def save_trigger_alert_state(keys):
 # TGT/SL percentages blind.
 # ============================================================
 
+# ============================================================
+# ALERT LOG (CSV) — every fired alert (Intraday R4 or 1HR BO) gets one
+# row here: when it crossed, at what LTP, and what the Trigger/TGT/SL
+# levels were at that moment. Lets you go back later and check whether
+# price actually reached TGT before SL, instead of trusting the fixed
+# TGT/SL percentages blind. Also mirrored to the Gist backup (if
+# configured) so the day's alert history isn't lost on a restart —
+# see the "OPTIONAL EXTERNAL PERSISTENCE" section above.
+# ============================================================
+
+ALERT_LOG_HEADER = "timestamp_ist,tab,symbol,ltp,trigger,tgt,sl\n"
+
+
 def log_alert_event(tab, symbol, ltp, trigger, tgt=None, sl=None):
+    ts = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
+    tgt_str = f"{tgt:.2f}" if tgt is not None else ""
+    sl_str = f"{sl:.2f}" if sl is not None else ""
+    line = f"{ts},{tab},{symbol},{ltp:.2f},{trigger:.2f},{tgt_str},{sl_str}\n"
+
     try:
         is_new = not os.path.exists(ALERT_LOG_FILE)
         with open(ALERT_LOG_FILE, "a", newline="") as f:
             if is_new:
-                f.write("timestamp_ist,tab,symbol,ltp,trigger,tgt,sl\n")
-            ts = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
-            tgt_str = f"{tgt:.2f}" if tgt is not None else ""
-            sl_str = f"{sl:.2f}" if sl is not None else ""
-            f.write(f"{ts},{tab},{symbol},{ltp:.2f},{trigger:.2f},{tgt_str},{sl_str}\n")
+                f.write(ALERT_LOG_HEADER)
+            f.write(line)
     except Exception:
         pass
+
+    if USE_GIST_PERSISTENCE:
+        try:
+            existing = _gist_read_file("alert_log.csv")
+            if not existing:
+                existing = ALERT_LOG_HEADER
+            elif not existing.startswith("timestamp_ist"):
+                existing = ALERT_LOG_HEADER + existing
+            _gist_write_file("alert_log.csv", existing + line)
+        except Exception:
+            pass
 
 
 def send_telegram_alert(bot_token, chat_id, message):
@@ -1394,6 +1605,11 @@ if is_client_view:
 else:
     with st.sidebar:
         st.header("Configuration")
+
+        if USE_GIST_PERSISTENCE:
+            st.caption("🔒 Persistence: local + Gist backup (survives restarts)")
+        else:
+            st.caption("⚠️ Persistence: local disk only — resets on app restart/redeploy. See GITHUB_GIST_TOKEN / GITHUB_GIST_ID in the code comments to enable a durable backup.")
 
         saved_token = load_token()
         access_token = st.text_input("Upstox Access Token", value=saved_token, type="password")
