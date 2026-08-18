@@ -1442,7 +1442,7 @@ if not nse_json_df.empty:
         else:
             @st.fragment(run_every=run_every)
             def show_1hr_bo():
-                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=50)
+                ce_table, pe_table = build_open_strike_scanner(access_token, expiry_type, top_n=40)
 
                 if not ce_table.empty or not pe_table.empty:
                     if telegram_enabled:
