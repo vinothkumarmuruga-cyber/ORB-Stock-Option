@@ -145,14 +145,6 @@ FILES = {
 
 
 # ============================================================
-# PRIORITY / HIGHLIGHT SETTINGS (visual band only, no reordering)
-# ============================================================
-
-PRIORITY_MIN = 90.0
-PRIORITY_MAX = 110.0
-
-
-# ============================================================
 # META
 # ============================================================
 
@@ -375,7 +367,7 @@ def check_and_alert_triggers(df, key_suffix, telegram_enabled, bot_token, chat_i
     for row in newly_triggered:
         message_lines.append(
             f"\n<b>{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}</b>\n"
-            f"LTP: {row['ltp']:.2f}  ›  Trigger: {row['Trigger']:.2f}\n"
+            f"LTP: {row['ltp']:.2f}  ›  Cam R4: {row['Trigger']:.2f}\n"
             f"Change: {row['change %']:.2f}%"
         )
 
@@ -619,12 +611,20 @@ def process_bhavcopy(bhav_file, df_json, target_expiry_index=0):
             "LastPric": "LastPrice"
         })
 
-        final_df["Camarilla_R4"] = (
-            final_df["Trigger"] + (final_df["HighPrice"] - final_df["LowPrice"]) * 1.1 / 2
-        )
+        # --------------------------------------------------------
+        # Camarilla levels — computed off the raw close price.
+        #   R3 = C + (H-L) * 1.1/4   -> used as SL
+        #   R4 = C + (H-L) * 1.1/2   -> used as Trigger ("Cam R4")
+        #   R5 = (H/L) * C           -> used as TGT
+        #   R6 = R5 + 1.1*(R5-R4)    -> kept for reference
+        # --------------------------------------------------------
+        close = final_df["Trigger"]
+        hl_range = final_df["HighPrice"] - final_df["LowPrice"]
 
-        if "Trigger" in final_df.columns:
-            final_df["Trigger"] = final_df["Trigger"] * 2
+        final_df["Camarilla_R3"] = close + hl_range * 1.1 / 4
+        final_df["Camarilla_R4"] = close + hl_range * 1.1 / 2
+        final_df["Camarilla_R5"] = (final_df["HighPrice"] / final_df["LowPrice"]) * close
+        final_df["Camarilla_R6"] = final_df["Camarilla_R5"] + 1.1 * (final_df["Camarilla_R5"] - final_df["Camarilla_R4"])
 
         return final_df, target_expiry, available_expiries
 
@@ -729,8 +729,13 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
         df["ltp"] = 0.0
         st.warning("Enter Access Token in sidebar to see live LTP.")
 
+    # Trigger = Camarilla R4, TGT = Camarilla R5, SL = Camarilla R3
     if "Camarilla_R4" in df.columns:
         df["Trigger"] = df["Camarilla_R4"]
+    if "Camarilla_R5" in df.columns:
+        df["TGT"] = df["Camarilla_R5"]
+    if "Camarilla_R3" in df.columns:
+        df["SL"] = df["Camarilla_R3"]
 
     def calculate_numeric_change(row):
         try:
@@ -767,16 +772,19 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
     calls_df = calls_df.sort_values(by="change %", ascending=False)
     puts_df = puts_df.sort_values(by="change %", ascending=False)
 
-    display_cols = ["Symbol", "StrikePrice", "Trigger", "ltp", "change %"]
+    # Rename Trigger -> "Cam R4" for display only (internal calcs above
+    # still use the "Trigger" column name).
+    calls_display = calls_df.rename(columns={"Trigger": "Cam R4"})
+    puts_display = puts_df.rename(columns={"Trigger": "Cam R4"})
+
+    display_cols = ["Symbol", "StrikePrice", "Cam R4", "TGT", "SL", "ltp", "change %"]
 
     def color_change(val):
         try:
             val = float(val)
         except:
             return ""
-        if PRIORITY_MIN <= val <= PRIORITY_MAX:
-            return "background-color: #fff2cc; color: #000000; font-weight: bold;"
-        elif val > PRIORITY_MAX:
+        if val >= 100:
             return "background-color: darkgreen; color: white; font-weight: bold;"
         elif val >= 80:
             return "background-color: lightgreen; color: black;"
@@ -784,7 +792,9 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
 
     format_dict = {
         "change %": "{:.2f}%",
-        "Trigger": "{:.2f}",
+        "Cam R4": "{:.2f}",
+        "TGT": "{:.2f}",
+        "SL": "{:.2f}",
         "ltp": "{:.2f}",
         "StrikePrice": "{:.2f}"
     }
@@ -794,7 +804,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
     with col1:
         st.subheader("Calls (CE)")
         st.dataframe(
-            calls_df[display_cols].style
+            calls_display[display_cols].style
             .map(color_change, subset=["change %"])
             .format(format_dict)
             .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
@@ -806,7 +816,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
     with col2:
         st.subheader("Puts (PE)")
         st.dataframe(
-            puts_df[display_cols].style
+            puts_display[display_cols].style
             .map(color_change, subset=["change %"])
             .format(format_dict)
             .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
@@ -821,7 +831,7 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
 # hourly candles directly, independent of the Intraday bhavcopy tab)
 #
 #   Trigger = high of the first 1-hour candle of the day.
-#   TGT = Trigger, SL = Trigger (no multiplier, no filters).
+#   TGT = Trigger + 35%, SL = Trigger - 20%.
 #   "Crossed" = live LTP >= Trigger (used only to fire the
 #   Telegram alert — no Breakout column shown in the table).
 # ============================================================
@@ -958,8 +968,6 @@ def _fetch_single_orb_data(instrument_key, headers):
 
         info = {
             "trigger": trigger,
-            "tgt": trigger,
-            "sl": trigger,
         }
         return instrument_key, info, None
 
@@ -1099,10 +1107,11 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=20):
         return info.get(field, default) if info else default
 
     shortlisted["Trigger"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "trigger"))
-    shortlisted["TGT"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "tgt"))
-    shortlisted["SL"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "sl"))
-
     shortlisted["Trigger"] = pd.to_numeric(shortlisted["Trigger"], errors="coerce")
+
+    # TGT = Trigger + 35%, SL = Trigger - 20%
+    shortlisted["TGT"] = shortlisted["Trigger"] * 1.35
+    shortlisted["SL"] = shortlisted["Trigger"] * 0.80
 
     missing_count = shortlisted["Trigger"].isna().sum()
     total_count = len(shortlisted)
@@ -1406,7 +1415,7 @@ if not nse_json_df.empty:
             st.warning("Intraday Bhavcopy file not found. Please upload in the sidebar.")
 
     # --------------------------------------------------------
-    # 1HR BO — live ORB scanner (Trigger = 1st hour High, TGT=SL=Trigger)
+    # 1HR BO — live ORB scanner (Trigger = 1st hour High, TGT=+35%, SL=-20%)
     # --------------------------------------------------------
     with tab_1hr_bo:
         st.header("1HR Breakout Options (Live)")
