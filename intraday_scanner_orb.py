@@ -61,6 +61,29 @@ st.markdown("""
             margin-bottom: 0.1rem !important;
         }
 
+        /* Tabs */
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            height: 45px;
+            white-space: pre-wrap;
+            background-color: #f0f2f6;
+            border-radius: 5px;
+            padding: 10px 20px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border: 1px solid #d6d6d6;
+        }
+
+        .stTabs [aria-selected="true"] {
+            background-color: #007bff;
+            color: white !important;
+            border-color: #007bff;
+        }
+
         /* Prevent graying during refresh */
 
         .stApp {
@@ -1093,6 +1116,534 @@ def show_side_by_side(ce_table, pe_table):
 
 
 # ============================================================
+# ATL SCANNER — ported from atl_fetcher.py + strategy.py + the daily
+# backtest script (simulate_trade below is unchanged from the backtest).
+#
+#   ATL (All-Time-Low) = lowest daily LOW over a user-set look-back
+#   window (sidebar "ATL Look-back (days)"). Same caveat as the
+#   original atl_fetcher.py: this is the lowest low within whatever
+#   window you fetch, not literally since listing — exactly how your
+#   script already behaved with its manual start/end date prompts.
+#
+#   Entry = ATL x ENTRY_MULT (2.0)
+#   TGT   = Entry x EXIT_MULT (2.0)   [ = ATL x 4.0 ]
+#   SL    = ATL x SL_MULT (1.5)
+#   (all three multipliers kept exactly as in strategy.py — change them
+#   there... i.e. right here, at the top of this section, if the rule
+#   ever changes.)
+#
+#   Status is resolved in two layers:
+#     1) a HISTORICAL pass over the look-back window's completed daily
+#        candles using simulate_trade() unchanged from the backtest
+#        script (same same-day tie-break: if a single day's range spans
+#        both TGT and SL, assume SL hit first);
+#     2) a LIVE overlay using today's still-forming daily candle
+#        (fetched once per refresh, batched across every instrument)
+#        to catch a fresh trigger/TGT/SL happening today, without
+#        re-fetching/re-simulating the whole history every refresh.
+#   Only contracts whose entry has actually triggered (historically or
+#   today) are shown — same "genuine signals only" behaviour as 1HR BO.
+# ============================================================
+
+ENTRY_MULT = 2.0   # Entry = ATL * ENTRY_MULT
+EXIT_MULT = 2.0    # TGT   = Entry * EXIT_MULT
+SL_MULT = 1.5      # SL    = ATL * SL_MULT
+
+ATL_HIST_UNIT = "days"
+ATL_HIST_INTERVAL = "1"
+
+
+def fetch_atl_history(instrument_key, headers, from_date, to_date, max_retries=2):
+    """
+    Daily candles for `instrument_key` between from_date and to_date (date
+    objects), sorted oldest -> newest. Same URL shape as atl_fetcher.py /
+    the backtest script. Returns None if nothing came back after retries.
+    """
+    encoded_key = quote(instrument_key, safe="")
+    url = (
+        f"https://api.upstox.com/v3/historical-candle/"
+        f"{encoded_key}/{ATL_HIST_UNIT}/{ATL_HIST_INTERVAL}/"
+        f"{to_date.isoformat()}/{from_date.isoformat()}"
+    )
+
+    attempt = 0
+    while True:
+        try:
+            response = requests.get(url, headers=headers, timeout=20)
+        except requests.RequestException:
+            if attempt < max_retries:
+                time.sleep(1.5 * (attempt + 1))
+                attempt += 1
+                continue
+            return None
+
+        if response.status_code == 429:
+            if attempt < max_retries:
+                time.sleep(1.5 * (attempt + 1))
+                attempt += 1
+                continue
+            return None
+
+        if response.status_code != 200:
+            return None
+
+        candles = (response.json().get("data") or {}).get("candles") or []
+        if not candles:
+            return None
+
+        df = pd.DataFrame(
+            candles,
+            columns=["timestamp", "open", "high", "low", "close", "volume", "oi"],
+        )
+        for col in ["open", "high", "low", "close"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df = df.dropna(subset=["open", "high", "low", "close"])
+        df = df.sort_values("timestamp").reset_index(drop=True)
+        return df if not df.empty else None
+
+
+def simulate_trade(candles, entry, exit_target, sl):
+    """
+    Unchanged from the backtest script. candles: DataFrame sorted oldest ->
+    newest with high/low/timestamp columns. Returns a dict describing the
+    outcome: NOT_TRIGGERED / TARGET / SL / OPEN.
+    """
+    entry_date = None
+
+    for _, row in candles.iterrows():
+        if entry_date is None:
+            if row["high"] >= entry:
+                entry_date = row["timestamp"]
+            else:
+                continue  # still waiting for entry, nothing else to check yet
+
+        hit_sl = row["low"] <= sl
+        hit_target = row["high"] >= exit_target
+
+        if hit_sl and hit_target:
+            # Can't tell intraday order from daily candles -> assume SL first
+            return {
+                "result": "SL", "entry_date": entry_date,
+                "exit_date": row["timestamp"], "exit_price": sl,
+            }
+        if hit_sl:
+            return {
+                "result": "SL", "entry_date": entry_date,
+                "exit_date": row["timestamp"], "exit_price": sl,
+            }
+        if hit_target:
+            return {
+                "result": "TARGET", "entry_date": entry_date,
+                "exit_date": row["timestamp"], "exit_price": exit_target,
+            }
+
+    if entry_date is None:
+        return {"result": "NOT_TRIGGERED", "entry_date": None, "exit_date": None, "exit_price": None}
+
+    last_close = candles.iloc[-1]["close"]
+    return {
+        "result": "OPEN", "entry_date": entry_date,
+        "exit_date": candles.iloc[-1]["timestamp"], "exit_price": last_close,
+    }
+
+
+def _fetch_single_atl_data(instrument_key, headers, from_date, to_date, max_retries=2):
+    candles = fetch_atl_history(instrument_key, headers, from_date, to_date, max_retries)
+    if candles is None or candles.empty:
+        return instrument_key, None, "No historical daily candles in look-back window"
+
+    atl_idx = candles["low"].idxmin()
+    atl = candles.loc[atl_idx, "low"]
+    atl_date = candles.loc[atl_idx, "timestamp"]
+
+    if atl in (None, 0) or pd.isna(atl):
+        return instrument_key, None, "Invalid ATL (zero/NaN low)"
+
+    entry = atl * ENTRY_MULT
+    tgt = entry * EXIT_MULT
+    sl = atl * SL_MULT
+
+    sim = simulate_trade(candles, entry, tgt, sl)
+
+    info = {
+        "atl": atl,
+        "atl_date": atl_date,
+        "entry": entry,
+        "tgt": tgt,
+        "sl": sl,
+        "hist_status": sim["result"],
+    }
+    return instrument_key, info, None
+
+
+@st.cache_data(ttl=1800, show_spinner="Scanning ATL look-back history...")
+def fetch_atl_map(instrument_keys, headers_tuple, from_date_iso, to_date_iso):
+    headers = dict(headers_tuple)
+    from_date = datetime.strptime(from_date_iso, "%Y-%m-%d").date()
+    to_date = datetime.strptime(to_date_iso, "%Y-%m-%d").date()
+
+    result = {}
+    sample_errors = []
+    instrument_keys = list(instrument_keys)
+
+    # Same conservative batching as fetch_orb_map — daily-candle history
+    # is cached for 30 minutes (ttl above) since it barely changes
+    # intraday, so this heavy pass runs far less often than the live
+    # overlay below.
+    batch_size = 10
+    pause_between_batches = 0.6
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for i in range(0, len(instrument_keys), batch_size):
+            batch = instrument_keys[i:i + batch_size]
+            futures = {
+                executor.submit(_fetch_single_atl_data, key, headers, from_date, to_date): key
+                for key in batch
+            }
+            for future in as_completed(futures):
+                key, info, error = future.result()
+                result[key] = info
+                if error and len(sample_errors) < 5:
+                    sample_errors.append(f"{key} -> {error}")
+            if i + batch_size < len(instrument_keys):
+                time.sleep(pause_between_batches)
+
+    return result, sample_errors
+
+
+def fetch_today_live_ohlc(instrument_keys, headers):
+    """
+    Today's still-forming daily candle (running high/low) plus LTP, for
+    the live overlay on top of the cached historical ATL pass. One
+    batched call across all instruments — same v3 OHLC endpoint used by
+    fetch_future_open_v3, just extracting high/low/last_price instead of
+    just open.
+    """
+    url = "https://api.upstox.com/v3/market-quote/ohlc"
+    rows = []
+
+    for keys in chunk_list(instrument_keys):
+        params = {"instrument_key": ",".join(keys), "interval": "1d"}
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+        except Exception:
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        try:
+            data = response.json().get("data", {})
+        except Exception:
+            continue
+
+        for response_key, item in data.items():
+            if not isinstance(item, dict):
+                continue
+
+            live = item.get("live_ohlc") or item.get("ohlc") or {}
+            true_key = item.get("instrument_token") or response_key
+
+            rows.append({
+                "instrument_key": true_key,
+                "today_high": live.get("high"),
+                "today_low": live.get("low"),
+                "today_ltp": item.get("last_price"),
+            })
+
+    return pd.DataFrame(rows)
+
+
+def _resolve_atl_status(row):
+    """
+    Combines the cached historical result with today's live overlay.
+    Returns (status, fresh_entry_today) — fresh_entry_today is True only
+    when entry is crossing for the very first time TODAY (used to decide
+    whether to fire a Telegram alert, so old look-back-window entries
+    from previous days don't all alert at once on a fresh app load).
+    """
+    hist = row["_hist_status"]
+    entry, tgt, sl = row["Entry"], row["TGT"], row["SL"]
+    today_high, today_low = row.get("today_high"), row.get("today_low")
+
+    if hist == "TARGET":
+        return "TGT Hit", False
+    if hist == "SL":
+        return "SL Hit", False
+
+    if hist == "OPEN":
+        # Entry already triggered on a past day within the look-back
+        # window; today just decides whether TGT/SL finally hits.
+        hit_tgt = pd.notna(today_high) and today_high >= tgt
+        hit_sl = pd.notna(today_low) and today_low <= sl
+        if hit_sl:
+            return "SL Hit", False  # same tie-break as simulate_trade
+        if hit_tgt:
+            return "TGT Hit", False
+        return "Open", False
+
+    # hist == "NOT_TRIGGERED": entry not yet hit as of yesterday's close.
+    hit_entry_today = pd.notna(today_high) and today_high >= entry
+    if not hit_entry_today:
+        return "Not Triggered", False
+
+    hit_tgt = pd.notna(today_high) and today_high >= tgt
+    hit_sl = pd.notna(today_low) and today_low <= sl
+    if hit_sl:
+        return "SL Hit", True
+    if hit_tgt:
+        return "TGT Hit", True
+    return "Open", True
+
+
+def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
+    """
+    ATL scanner: alerts the moment an option's Entry level (2x ATL) is
+    crossed for the FIRST time TODAY. Deliberately does NOT alert on
+    contracts whose entry already triggered on an earlier day within the
+    look-back window (those show up as "Open"/"TGT Hit"/"SL Hit" from the
+    historical pass) — otherwise a fresh app load would flood Telegram
+    with every already-triggered contract across the whole window.
+    """
+    if not telegram_enabled:
+        return
+    if df.empty:
+        return
+
+    alerted = load_trigger_alert_state()
+    newly_triggered = []
+
+    for _, row in df.iterrows():
+        if not row.get("_fresh_entry_today"):
+            continue
+        symbol = row.get("Symbol")
+        if not symbol:
+            continue
+        alert_id = f"ATL:{symbol}"
+        if alert_id not in alerted:
+            newly_triggered.append((alert_id, row))
+
+    if not newly_triggered:
+        return
+
+    sent_count = 0
+    fail_count = 0
+
+    for alert_id, row in newly_triggered:
+        message = (
+            "🚀 <b>ATL Scanner — Entry Triggered</b>\n\n"
+            f"<b>{row['Symbol']}</b>\n"
+            f"LTP: {row['LTP']:.2f}  ›  Entry: {row['Entry']:.2f}\n"
+            f"ATL: {row['ATL']:.2f}  |  TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}"
+        )
+
+        success, error = send_telegram_alert(bot_token, chat_id, message)
+
+        if success:
+            alerted.add(alert_id)
+            save_trigger_alert_state(alerted)
+            log_alert_event("ATL", row['Symbol'], row['LTP'], row['Entry'], tgt=row['TGT'], sl=row['SL'])
+            sent_count += 1
+        else:
+            fail_count += 1
+
+    if sent_count:
+        st.toast(f"Telegram alert sent for {sent_count} ATL entry trigger(s).", icon="🚀")
+    if fail_count:
+        st.toast(f"{fail_count} ATL alert(s) failed — will retry next refresh.", icon="⚠️")
+
+
+def build_atl_scanner(access_token, expiry_choice, lookback_days):
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    futures, options = load_live_fo_instruments()
+    expiry = get_expiry_for_choice(futures, expiry_choice)
+
+    if expiry is None:
+        st.error("No futures expiry found")
+        return pd.DataFrame(), pd.DataFrame()
+
+    futures = futures[futures["expiry_date"] == expiry].copy()
+    options = options[options["expiry_date"] == expiry].copy()
+
+    fut_quotes, _ = fetch_future_open_v3(futures["instrument_key"].tolist(), headers)
+
+    if fut_quotes.empty:
+        st.error("No futures open data received")
+        return pd.DataFrame(), pd.DataFrame()
+
+    futures = futures.merge(fut_quotes, on="instrument_key", how="left")
+    futures = futures.dropna(subset=["future_open"])
+
+    if futures.empty:
+        st.error("All futures were dropped after the Open-price fetch.")
+        return pd.DataFrame(), pd.DataFrame()
+
+    selected_rows = []
+    for _, fut in futures.iterrows():
+        ce = nearest_option(options, fut["underlying_key"], expiry, "CE", fut["future_open"])
+        pe = nearest_option(options, fut["underlying_key"], expiry, "PE", fut["future_open"])
+
+        for opt in [ce, pe]:
+            if opt is None:
+                continue
+            selected_rows.append({
+                "underlying_symbol": fut["underlying_symbol"],
+                "strike": opt["strike_price"],
+                "option_type": opt["instrument_type"],
+                "option_key": opt["instrument_key"],
+                "Lot": opt["lot_size"],
+            })
+
+    selected = pd.DataFrame(selected_rows)
+    if selected.empty:
+        st.error("No CE/PE options found")
+        return pd.DataFrame(), pd.DataFrame()
+
+    selected["Symbol"] = (
+        selected["underlying_symbol"].astype(str) + " "
+        + selected["strike"].astype(int).astype(str) + " "
+        + selected["option_type"].astype(str)
+    )
+
+    today = get_ist_now().date()
+    from_date = today - timedelta(days=lookback_days)
+    to_date = today - timedelta(days=1)  # historical endpoint won't have today yet
+
+    atl_map, atl_errors = fetch_atl_map(
+        tuple(sorted(selected["option_key"].unique())),
+        tuple(headers.items()),
+        from_date.isoformat(),
+        to_date.isoformat(),
+    )
+
+    def _atl_field(key, field, default=None):
+        info = atl_map.get(key)
+        return info.get(field, default) if info else default
+
+    selected["ATL"] = pd.to_numeric(selected["option_key"].apply(lambda k: _atl_field(k, "atl")), errors="coerce")
+    selected["ATL Date"] = selected["option_key"].apply(lambda k: _atl_field(k, "atl_date"))
+    selected["Entry"] = pd.to_numeric(selected["option_key"].apply(lambda k: _atl_field(k, "entry")), errors="coerce")
+    selected["TGT"] = pd.to_numeric(selected["option_key"].apply(lambda k: _atl_field(k, "tgt")), errors="coerce")
+    selected["SL"] = pd.to_numeric(selected["option_key"].apply(lambda k: _atl_field(k, "sl")), errors="coerce")
+    selected["_hist_status"] = selected["option_key"].apply(lambda k: _atl_field(k, "hist_status", "NOT_TRIGGERED"))
+
+    missing_count = selected["ATL"].isna().sum()
+    total_count = len(selected)
+
+    if missing_count > 0:
+        with st.expander(
+            f"⚠️ ATL not available for {missing_count}/{total_count} options (hidden from table below)",
+            expanded=(missing_count == total_count)
+        ):
+            st.write(f"Needs at least one completed daily candle in the {lookback_days}-day look-back window. Can also happen on rate-limited requests — those retry within {30} minutes (ATL cache TTL).")
+            if atl_errors:
+                for err in atl_errors:
+                    st.code(err)
+
+    live_ohlc = fetch_today_live_ohlc(selected["option_key"].tolist(), headers)
+    selected = selected.merge(live_ohlc, left_on="option_key", right_on="instrument_key", how="left")
+
+    status_and_fresh = selected.apply(_resolve_atl_status, axis=1, result_type="expand")
+    selected["Status"] = status_and_fresh[0]
+    selected["_fresh_entry_today"] = status_and_fresh[1]
+
+    selected["LTP"] = pd.to_numeric(selected["today_ltp"], errors="coerce")
+    selected["Away %"] = np.where(
+        selected["Entry"] > 0,
+        (selected["LTP"] / selected["Entry"]) * 100,
+        np.nan
+    )
+    selected["Away %"] = selected["Away %"].clip(lower=0)
+    selected["Cap"] = selected["LTP"] * selected["Lot"]
+
+    result = selected[[
+        "Symbol", "LTP", "ATL", "ATL Date", "Entry", "Away %", "TGT", "SL",
+        "Status", "_fresh_entry_today", "Lot", "Cap"
+    ]].copy()
+
+    for col in ["LTP", "ATL", "Entry", "Away %", "TGT", "SL"]:
+        result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
+    result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
+    result["Cap"] = pd.to_numeric(result["Cap"], errors="coerce").round(0).fillna(0).astype(int)
+
+    # Only show contracts whose entry has actually triggered — historically
+    # within the look-back window, or live today. Same "genuine signals
+    # only" behaviour as the 1HR BO tab, not a watchlist of every ATM strike.
+    result = result[result["Status"] != "Not Triggered"].reset_index(drop=True)
+
+    ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
+    pe_table = result[result["Symbol"].str.endswith("PE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
+
+    return ce_table, pe_table
+
+
+DECIMAL_COLS_ATL = {
+    "LTP": "{:.2f}",
+    "ATL": "{:.2f}",
+    "Entry": "{:.2f}",
+    "Away %": "{:.2f}%",
+    "TGT": "{:.2f}",
+    "SL": "{:.2f}",
+}
+
+# "_fresh_entry_today" is internal-only (drives the Telegram alert, see
+# check_and_alert_atl) and deliberately excluded from display.
+DISPLAY_COLS_ATL = ["Symbol", "LTP", "ATL", "ATL Date", "Entry", "Away %", "TGT", "SL", "Status", "Lot", "Cap"]
+
+CE_ATL_TINTS = {
+    "Entry": {"background-color": "#E3F2FD", "color": "#0D47A1", "font-weight": "600"},
+    "TGT": {"background-color": "#E8F5E9", "color": "#1B5E20", "font-weight": "600"},
+    "SL": {"background-color": "#FFEBEE", "color": "#B71C1C", "font-weight": "600"},
+}
+
+PE_ATL_TINTS = {
+    "Entry": {"background-color": "#EDE7F6", "color": "#4527A0", "font-weight": "600"},
+    "TGT": {"background-color": "#E0F2F1", "color": "#00695C", "font-weight": "600"},
+    "SL": {"background-color": "#FFF3E0", "color": "#E65100", "font-weight": "600"},
+}
+
+
+def show_atl_side_by_side(ce_table, pe_table):
+    last_updated = get_ist_now().strftime("%H:%M:%S")
+    st.caption(f"Last Updated: {last_updated} IST")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Calls (CE)**")
+        if ce_table.empty:
+            st.info("No CE data available.")
+        else:
+            ce_style = (
+                ce_table[DISPLAY_COLS_ATL].style
+                .map(style_away_percent, subset=["Away %"])
+                .map(style_status, subset=["Status"])
+                .pipe(apply_column_tints, CE_ATL_TINTS)
+                .format(DECIMAL_COLS_ATL, na_rep="-")
+            )
+            st.dataframe(ce_style, width="stretch", hide_index=True, height=table_height(ce_table))
+
+    with col2:
+        st.markdown("**Puts (PE)**")
+        if pe_table.empty:
+            st.info("No PE data available.")
+        else:
+            pe_style = (
+                pe_table[DISPLAY_COLS_ATL].style
+                .map(style_away_percent, subset=["Away %"])
+                .map(style_status, subset=["Status"])
+                .pipe(apply_column_tints, PE_ATL_TINTS)
+                .format(DECIMAL_COLS_ATL, na_rep="-")
+            )
+            st.dataframe(pe_style, width="stretch", hide_index=True, height=table_height(pe_table))
+
+
+# ============================================================
 # CONFIGURATION (sidebar)
 # ============================================================
 
@@ -1110,6 +1661,7 @@ if is_client_view:
     auto_refresh = True
     refresh_interval = 15
     expiry_type = "Current Month"
+    atl_lookback_days = 365
 
     telegram_bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
@@ -1137,7 +1689,26 @@ else:
             "Select Expiry Month",
             options=["Current Month", "Next Month"],
             index=0,
-            help="Which monthly expiry's ATM options the 1HR BO scanner tracks."
+            help="Which monthly expiry's ATM options both scanners track."
+        )
+
+        st.markdown("---")
+        st.header("ATL Scanner Settings")
+
+        atl_lookback_days = st.number_input(
+            "ATL Look-back (days)",
+            min_value=30,
+            max_value=1825,
+            value=365,
+            step=30,
+            help=(
+                "How many calendar days of daily candles to fetch when "
+                "computing each option's All-Time-Low (ATL). This is the "
+                "lowest LOW within that window, not literally since "
+                "listing — same as the manual start/end date range in "
+                "atl_fetcher.py. Entry = ATL x 2.0, TGT = Entry x 2.0, "
+                "SL = ATL x 1.5 (from strategy.py, unchanged)."
+            )
         )
 
         st.markdown("---")
@@ -1147,7 +1718,7 @@ else:
             "Enable Trigger Alerts",
             value=st.session_state.get("telegram_enabled", False),
             key="telegram_enabled",
-            help="Sends a Telegram message the moment an option's 10:15 candle confirms a valid 1HR BO breakout. Alerts only fire inside the 10:15-11:15 IST window."
+            help="Sends a Telegram message the moment an option triggers on either scanner: a confirmed 1HR BO breakout (10:15-11:15 IST window only), or a fresh ATL Entry crossing today."
         )
 
         telegram_bot_token = st.text_input(
@@ -1192,31 +1763,59 @@ else:
 
 
 # ============================================================
-# MAIN PAGE — 1HR BO live ORB scanner only (Trigger = 1st hour High,
-# TGT = +20%, SL = -5%, breakout evaluated off the 10:15-11:15 candle)
+# MAIN PAGE — two live scanners, same ATM CE/PE universe:
+#   1HR BO: Trigger = 1st hour High, TGT = +20%, SL = -5%, breakout
+#           evaluated off the 10:15-11:15 candle.
+#   ATL Scanner: Entry = ATL x2.0, TGT = Entry x2.0, SL = ATL x1.5
+#                (ported from atl_fetcher.py / strategy.py).
 # ============================================================
 
 st.title("Stk Op Scanner")
-st.header("1HR Breakout Options (Live)")
 
 run_every = refresh_interval if auto_refresh else None
 
 if not access_token:
     st.warning("Enter your Upstox Access Token in the sidebar first.")
 else:
-    @st.fragment(run_every=run_every)
-    def show_1hr_bo():
-        ce_table, pe_table = build_open_strike_scanner(
-            access_token, expiry_type
-        )
+    tab_1hr_bo, tab_atl = st.tabs(["1HR BO", "ATL Scanner"])
 
-        if not ce_table.empty or not pe_table.empty:
-            if telegram_enabled:
-                combined = pd.concat([ce_table, pe_table], ignore_index=True)
-                check_and_alert_1hr_bo(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
+    with tab_1hr_bo:
+        st.header("1HR Breakout Options (Live)")
 
-            show_side_by_side(ce_table, pe_table)
-        else:
-            st.info("No data yet — waiting for market data.")
+        @st.fragment(run_every=run_every)
+        def show_1hr_bo():
+            ce_table, pe_table = build_open_strike_scanner(
+                access_token, expiry_type
+            )
 
-    show_1hr_bo()
+            if not ce_table.empty or not pe_table.empty:
+                if telegram_enabled:
+                    combined = pd.concat([ce_table, pe_table], ignore_index=True)
+                    check_and_alert_1hr_bo(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
+
+                show_side_by_side(ce_table, pe_table)
+            else:
+                st.info("No data yet — waiting for market data.")
+
+        show_1hr_bo()
+
+    with tab_atl:
+        st.header("All-Time-Low Breakout (Live)")
+        st.caption(f"Entry = ATL x{ENTRY_MULT:g}  |  TGT = Entry x{EXIT_MULT:g}  |  SL = ATL x{SL_MULT:g}  |  Look-back = {atl_lookback_days} days")
+
+        @st.fragment(run_every=run_every)
+        def show_atl():
+            ce_table, pe_table = build_atl_scanner(
+                access_token, expiry_type, atl_lookback_days
+            )
+
+            if not ce_table.empty or not pe_table.empty:
+                if telegram_enabled:
+                    combined = pd.concat([ce_table, pe_table], ignore_index=True)
+                    check_and_alert_atl(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
+
+                show_atl_side_by_side(ce_table, pe_table)
+            else:
+                st.info("No triggered entries yet — waiting for market data or a breakout above Entry.")
+
+        show_atl()
