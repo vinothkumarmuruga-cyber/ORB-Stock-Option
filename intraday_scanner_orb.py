@@ -1147,7 +1147,7 @@ def show_side_by_side(ce_table, pe_table):
 
 ENTRY_MULT = 2.0   # Entry = ATL * ENTRY_MULT
 EXIT_MULT = 2.0    # TGT   = Entry * EXIT_MULT
-SL_MULT = 1.3      # SL    = ATL * SL_MULT
+SL_MULT = 0.7      # SL    = Entry * SL_MULT
 
 ATL_HIST_UNIT = "days"
 ATL_HIST_INTERVAL = "1"
@@ -1262,7 +1262,7 @@ def _fetch_single_atl_data(instrument_key, headers, from_date, to_date, max_retr
 
     entry = atl * ENTRY_MULT
     tgt = entry * EXIT_MULT
-    sl = atl * SL_MULT
+    sl = entry * SL_MULT
 
     sim = simulate_trade(candles, entry, tgt, sl)
 
@@ -1802,7 +1802,7 @@ else:
 
     with tab_atl:
         st.header("All-Time-Low Breakout (Live)")
-        st.caption(f"Entry = ATL x{ENTRY_MULT:g}  |  TGT = Entry x{EXIT_MULT:g}  |  SL = ATL x{SL_MULT:g}  |  Look-back from {atl_start_date}")
+        st.caption(f"Entry = ATL x{ENTRY_MULT:g}  |  TGT = Entry x{EXIT_MULT:g}  |  SL = Entry x{SL_MULT:g}  |  Look-back from {atl_start_date}")
 
         @st.fragment(run_every=run_every)
         def show_atl():
