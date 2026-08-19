@@ -1538,6 +1538,24 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
     # diagnostics expander above already explains why the rest are missing.
     result = result[result["Trigger"].notna()].reset_index(drop=True)
 
+    # Only show GENUINE breakouts — matches the backtest's "Triggered
+    # (entered)" list, not just "top movers by day Chg%". A row only
+    # qualifies once:
+    #   1) the 10:15 candle has actually formed (Drop % is known), AND
+    #   2) it stayed within BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger
+    #      before breaking out (the same quality filter as "_crossed"
+    #      above), AND
+    #   3) LTP has actually crossed Trigger (Away % >= 100).
+    # Previously every shortlisted top-N option was shown regardless of
+    # whether it passed this filter, which let options that dropped
+    # 15-20%+ below Trigger before spiking show up looking like clean
+    # breakouts — that's not a valid breakout per the reference backtest.
+    result = result[
+        result["Drop %"].notna()
+        & (result["Drop %"] <= BREAKOUT_DROP_PCT_LIMIT)
+        & (result["LTP"] >= result["Trigger"])
+    ].reset_index(drop=True)
+
     # Volume / Lots filter ("Strong BO") — a strike can show a big Away %
     # purely from one or two stale/illiquid trades. Filtering on today's
     # traded volume (or lots traded — Ctr = Vol / Lot, comparable across
