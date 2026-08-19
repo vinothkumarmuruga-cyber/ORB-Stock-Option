@@ -1255,7 +1255,7 @@ def _fetch_single_atl_data(instrument_key, headers, from_date, to_date, max_retr
 
     atl_idx = candles["low"].idxmin()
     atl = candles.loc[atl_idx, "low"]
-    atl_date = candles.loc[atl_idx, "timestamp"]
+    atl_timestamp = candles.loc[atl_idx, "timestamp"]
 
     if atl in (None, 0) or pd.isna(atl):
         return instrument_key, None, "Invalid ATL (zero/NaN low)"
@@ -1268,7 +1268,10 @@ def _fetch_single_atl_data(instrument_key, headers, from_date, to_date, max_retr
 
     info = {
         "atl": atl,
-        "atl_date": atl_date,
+        # Plain "YYYY-MM-DD" string, not a Timestamp — otherwise it
+        # displays with a time-of-day and +05:30 offset (e.g.
+        # "2026-08-10 00:00:00+05:30") instead of just "2026-08-10".
+        "atl_date": atl_timestamp.strftime("%Y-%m-%d") if pd.notna(atl_timestamp) else None,
         "entry": entry,
         "tgt": tgt,
         "sl": sl,
@@ -1454,7 +1457,7 @@ def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
         st.toast(f"{fail_count} ATL alert(s) failed — will retry next refresh.", icon="⚠️")
 
 
-def build_atl_scanner(access_token, expiry_choice, lookback_days):
+def build_atl_scanner(access_token, expiry_choice, start_date):
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -1511,7 +1514,7 @@ def build_atl_scanner(access_token, expiry_choice, lookback_days):
     )
 
     today = get_ist_now().date()
-    from_date = today - timedelta(days=lookback_days)
+    from_date = start_date
     to_date = today - timedelta(days=1)  # historical endpoint won't have today yet
 
     atl_map, atl_errors = fetch_atl_map(
@@ -1540,7 +1543,7 @@ def build_atl_scanner(access_token, expiry_choice, lookback_days):
             f"⚠️ ATL not available for {missing_count}/{total_count} options (hidden from table below)",
             expanded=(missing_count == total_count)
         ):
-            st.write(f"Needs at least one completed daily candle in the {lookback_days}-day look-back window. Can also happen on rate-limited requests — those retry within {30} minutes (ATL cache TTL).")
+            st.write(f"Needs at least one completed daily candle between {from_date} and {to_date}. Can also happen on rate-limited requests — those retry within 30 minutes (ATL cache TTL).")
             if atl_errors:
                 for err in atl_errors:
                     st.code(err)
@@ -1661,7 +1664,7 @@ if is_client_view:
     auto_refresh = True
     refresh_interval = 15
     expiry_type = "Current Month"
-    atl_lookback_days = 365
+    atl_start_date = get_ist_now().date() - timedelta(days=365)
 
     telegram_bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
@@ -1695,17 +1698,15 @@ else:
         st.markdown("---")
         st.header("ATL Scanner Settings")
 
-        atl_lookback_days = st.number_input(
-            "ATL Look-back (days)",
-            min_value=30,
-            max_value=1825,
-            value=365,
-            step=30,
+        atl_start_date = st.date_input(
+            "ATL Look-back From",
+            value=get_ist_now().date() - timedelta(days=365),
+            min_value=get_ist_now().date() - timedelta(days=3650),
+            max_value=get_ist_now().date() - timedelta(days=1),
             help=(
-                "How many calendar days of daily candles to fetch when "
-                "computing each option's All-Time-Low (ATL). This is the "
-                "lowest LOW within that window, not literally since "
-                "listing — same as the manual start/end date range in "
+                "All-Time-Low (ATL) is the lowest daily LOW from this date "
+                "up to yesterday's close — not literally since listing, "
+                "same as the manual start/end date range in "
                 "atl_fetcher.py. Entry = ATL x 2.0, TGT = Entry x 2.0, "
                 "SL = ATL x 1.5 (from strategy.py, unchanged)."
             )
@@ -1801,12 +1802,12 @@ else:
 
     with tab_atl:
         st.header("All-Time-Low Breakout (Live)")
-        st.caption(f"Entry = ATL x{ENTRY_MULT:g}  |  TGT = Entry x{EXIT_MULT:g}  |  SL = ATL x{SL_MULT:g}  |  Look-back = {atl_lookback_days} days")
+        st.caption(f"Entry = ATL x{ENTRY_MULT:g}  |  TGT = Entry x{EXIT_MULT:g}  |  SL = ATL x{SL_MULT:g}  |  Look-back from {atl_start_date}")
 
         @st.fragment(run_every=run_every)
         def show_atl():
             ce_table, pe_table = build_atl_scanner(
-                access_token, expiry_type, atl_lookback_days
+                access_token, expiry_type, atl_start_date
             )
 
             if not ce_table.empty or not pe_table.empty:
