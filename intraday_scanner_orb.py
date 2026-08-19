@@ -2,17 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-import math
 import os
 import time
-import gzip
-import shutil
 import json
-import re
 from datetime import date, datetime, timedelta, timezone
-import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import zipfile
 from urllib.parse import quote
 
 # ============================================================
@@ -32,7 +26,7 @@ def get_ist_now():
 # ============================================================
 
 st.set_page_config(
-    page_title="R4 And 1 HR Scanner",
+    page_title="Stk Op Scanner",
     layout="wide"
 )
 
@@ -67,29 +61,6 @@ st.markdown("""
             margin-bottom: 0.1rem !important;
         }
 
-        /* Tabs */
-
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 10px;
-        }
-
-        .stTabs [data-baseweb="tab"] {
-            height: 45px;
-            white-space: pre-wrap;
-            background-color: #f0f2f6;
-            border-radius: 5px;
-            padding: 10px 20px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            border: 1px solid #d6d6d6;
-        }
-
-        .stTabs [aria-selected="true"] {
-            background-color: #007bff;
-            color: white !important;
-            border-color: #007bff;
-        }
-
         /* Prevent graying during refresh */
 
         .stApp {
@@ -100,16 +71,6 @@ st.markdown("""
         [data-testid="stHeader"] {
             opacity: 1 !important;
             transition: none !important;
-        }
-
-        /* Hide uploader instructions */
-
-        [data-testid="stFileUploaderDropzone"] div div span {
-            display: none !important;
-        }
-
-        [data-testid="stFileUploaderDropzone"] div div small {
-            display: none !important;
         }
 
         /* Dataframe */
@@ -132,18 +93,9 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
 
-BLACKLIST_FILE = os.path.join(DATA_DIR, "blacklist.json")
 TOKEN_FILE = os.path.join(DATA_DIR, "token.json")
-META_FILE = os.path.join(DATA_DIR, "meta.json")
-LTP_CACHE_FILE = os.path.join(DATA_DIR, "ltp_cache.json")
 TRIGGER_ALERT_FILE = os.path.join(DATA_DIR, "trigger_alert_state.json")
 ALERT_LOG_FILE = os.path.join(DATA_DIR, "alert_log.csv")
-CROSSED_SINCE_FILE = os.path.join(DATA_DIR, "crossed_since.json")
-
-
-FILES = {
-    "Intraday": os.path.join(DATA_DIR, "intraday.csv")
-}
 
 
 # ============================================================
@@ -223,85 +175,6 @@ def _gist_write_file(filename, content_str):
 
 
 # ============================================================
-# META
-# ============================================================
-
-def load_meta():
-    if os.path.exists(META_FILE):
-        try:
-            with open(META_FILE, "r") as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
-
-
-def save_meta(key, date_str):
-    try:
-        meta = load_meta()
-        meta[key] = date_str
-        with open(META_FILE, "w") as f:
-            json.dump(meta, f)
-    except:
-        pass
-
-
-# ============================================================
-# LTP CACHE (Intraday bhavcopy tab)
-# ============================================================
-
-def load_ltp_cache():
-    if os.path.exists(LTP_CACHE_FILE):
-        try:
-            with open(LTP_CACHE_FILE, "r") as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
-
-
-def save_ltp_cache(new_data):
-    try:
-        cache = load_ltp_cache()
-        cache.update(new_data)
-        with open(LTP_CACHE_FILE, "w") as f:
-            json.dump(cache, f)
-    except:
-        pass
-
-
-# ============================================================
-# DATE FROM FILE NAME
-# ============================================================
-
-def extract_date_from_filename(filename):
-    match = re.search(r"(\d{8})", filename)
-    if match:
-        d = match.group(1)
-        return f"{d[:4]}-{d[4:6]}-{d[6:]}"
-    return None
-
-
-# ============================================================
-# ZIP -> CSV
-# ============================================================
-
-def extract_csv_from_zip(zip_file):
-    try:
-        with zipfile.ZipFile(zip_file) as z:
-            csv_files = [f for f in z.namelist() if f.lower().endswith(".csv")]
-            if not csv_files:
-                st.error("No CSV file found in the ZIP archive.")
-                return None, None
-            csv_filename = csv_files[0]
-            with z.open(csv_filename) as f:
-                return f.read(), csv_filename
-    except Exception as e:
-        st.error(f"Error extracting ZIP file: {e}")
-        return None, None
-
-
-# ============================================================
 # TOKEN — local disk first (fast), Gist as durable backup/fallback
 # ============================================================
 
@@ -355,90 +228,7 @@ def save_token(token):
 
 
 # ============================================================
-# BLACKLIST (Intraday tab)
-# ============================================================
-
-def load_blacklist():
-    if os.path.exists(BLACKLIST_FILE):
-        try:
-            with open(BLACKLIST_FILE, "r") as f:
-                data = json.load(f)
-                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
-                    return set(data.get("keys", []))
-        except:
-            pass
-    return set()
-
-
-def save_blacklist(keys):
-    try:
-        data = {
-            "date": get_ist_now().strftime("%Y-%m-%d"),
-            "keys": list(keys)
-        }
-        with open(BLACKLIST_FILE, "w") as f:
-            json.dump(data, f)
-    except:
-        pass
-
-
-# ============================================================
-# CROSSED-SINCE TRACKER (1HR BO tab)
-#
-# Records the first moment each option was seen with LTP >= Trigger
-# today, so the table can show "how long ago" a breakout happened
-# instead of just a static "crossed / not crossed" flag. Once a
-# symbol's first-cross time is recorded it's never overwritten again
-# that day, even if the option later pulls back below Trigger. Local
-# disk only (not backed by the Gist) — losing this on a rare restart
-# just resets the "since" clock for that symbol, it doesn't cause
-# duplicate alerts or any other correctness issue.
-# ============================================================
-
-def load_crossed_since():
-    if os.path.exists(CROSSED_SINCE_FILE):
-        try:
-            with open(CROSSED_SINCE_FILE, "r") as f:
-                data = json.load(f)
-                if data.get("date") == get_ist_now().strftime("%Y-%m-%d"):
-                    return data.get("times", {})
-        except:
-            pass
-    return {}
-
-
-def save_crossed_since(times):
-    try:
-        data = {
-            "date": get_ist_now().strftime("%Y-%m-%d"),
-            "times": times
-        }
-        with open(CROSSED_SINCE_FILE, "w") as f:
-            json.dump(data, f)
-    except:
-        pass
-
-
-def format_since(iso_timestamp):
-    """'12m ago' / '1h 5m ago' style label for a crossed-since timestamp."""
-    if not iso_timestamp:
-        return "-"
-    try:
-        crossed_dt = datetime.fromisoformat(iso_timestamp)
-    except Exception:
-        return "-"
-
-    delta_minutes = int((get_ist_now() - crossed_dt).total_seconds() // 60)
-    if delta_minutes < 1:
-        return "just now"
-    if delta_minutes < 60:
-        return f"{delta_minutes}m ago"
-    hours, minutes = divmod(delta_minutes, 60)
-    return f"{hours}h {minutes}m ago"
-
-
-# ============================================================
-# TELEGRAM TRIGGER-ALERT STATE (shared across both tabs)
+# TELEGRAM TRIGGER-ALERT STATE
 #
 # Persisted to disk (and, if configured, to the Gist backup — see the
 # "OPTIONAL EXTERNAL PERSISTENCE" section above) so alert
@@ -446,9 +236,7 @@ def format_since(iso_timestamp):
 # Streamlit Cloud restart mid-day wipes this file and can cause
 # duplicate Telegram alerts for options that already fired earlier.
 # Resets automatically each new trading day. Each entry is
-# "<tab>:<id>" so Intraday / 1HR BO track their own alert
-# history independently, but a single Reset Alerts button in
-# the sidebar clears everything at once.
+# "1HR BO:<symbol>".
 # ============================================================
 
 def load_trigger_alert_state():
@@ -500,21 +288,13 @@ def save_trigger_alert_state(keys):
 
 
 # ============================================================
-# ALERT LOG (CSV) — every fired alert (Intraday R4 or 1HR BO) gets one
-# row here: when it crossed, at what LTP, and what the Trigger/TGT/SL
-# levels were at that moment. Lets you go back later and check whether
-# price actually reached TGT before SL, instead of trusting the fixed
-# TGT/SL percentages blind.
-# ============================================================
-
-# ============================================================
-# ALERT LOG (CSV) — every fired alert (Intraday R4 or 1HR BO) gets one
-# row here: when it crossed, at what LTP, and what the Trigger/TGT/SL
-# levels were at that moment. Lets you go back later and check whether
-# price actually reached TGT before SL, instead of trusting the fixed
-# TGT/SL percentages blind. Also mirrored to the Gist backup (if
-# configured) so the day's alert history isn't lost on a restart —
-# see the "OPTIONAL EXTERNAL PERSISTENCE" section above.
+# ALERT LOG (CSV) — every fired 1HR BO alert gets one row here: when it
+# crossed, at what LTP, and what the Trigger/TGT/SL levels were at that
+# moment. Lets you go back later and check whether price actually
+# reached TGT before SL, instead of trusting the fixed TGT/SL
+# percentages blind. Also mirrored to the Gist backup (if configured)
+# so the day's alert history isn't lost on a restart — see the
+# "OPTIONAL EXTERNAL PERSISTENCE" section above.
 # ============================================================
 
 ALERT_LOG_HEADER = "timestamp_ist,tab,symbol,ltp,trigger,tgt,sl\n"
@@ -563,75 +343,6 @@ def send_telegram_alert(bot_token, chat_id, message):
         return False, f"Exception: {e}"
 
 
-def check_and_alert_triggers(df, key_suffix, telegram_enabled, bot_token, chat_id):
-    """
-    Intraday bhavcopy tab: alerts the moment an option's change %
-    (LTP / Trigger x 100) crosses 100%.
-    """
-    if not telegram_enabled:
-        return
-    if df.empty:
-        return
-    if "instrument_key" not in df.columns:
-        return
-
-    alerted = load_trigger_alert_state()
-    newly_triggered = []
-
-    for _, row in df.iterrows():
-        inst_key = row.get("instrument_key")
-        if not inst_key:
-            continue
-
-        alert_id = f"{key_suffix}:{inst_key}"
-
-        try:
-            change_pct = float(row.get("change %", 0.0))
-        except:
-            continue
-
-        if change_pct >= 100 and alert_id not in alerted:
-            newly_triggered.append((alert_id, row))
-
-    if not newly_triggered:
-        return
-
-    # One Telegram message per option, sent and persisted independently.
-    # If one send fails (bad formatting, transient network issue, etc.)
-    # it no longer blocks or gets rolled back with the rest of the batch
-    # — every other option in this batch still alerts and gets recorded.
-    sent_count = 0
-    fail_count = 0
-
-    for alert_id, row in newly_triggered:
-        message = (
-            f"🚀 <b>R4 Trigger Crossed — {key_suffix}</b>\n\n"
-            f"<b>{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}</b>\n"
-            f"LTP: {row['ltp']:.2f}  ›  Cam R4: {row['Trigger']:.2f}\n"
-            f"Change: {row['change %']:.2f}%"
-        )
-
-        success, error = send_telegram_alert(bot_token, chat_id, message)
-
-        if success:
-            alerted.add(alert_id)
-            save_trigger_alert_state(alerted)
-            log_alert_event(
-                key_suffix,
-                f"{row['Symbol']} {row['StrikePrice']:.0f} {row['OptionType']}",
-                row['ltp'],
-                row['Trigger']
-            )
-            sent_count += 1
-        else:
-            fail_count += 1
-
-    if sent_count:
-        st.toast(f"Telegram alert sent for {sent_count} trigger cross(es) on {key_suffix}.", icon="🚀")
-    if fail_count:
-        st.toast(f"{fail_count} Telegram alert(s) failed on {key_suffix} — will retry next refresh.", icon="⚠️")
-
-
 # The first 1-hour candle (9:15-10:15 IST) is only fully formed once
 # the clock passes 10:15 IST, which is when the Trigger (first-hour
 # high) becomes final. The breakout itself is only ever evaluated
@@ -660,8 +371,8 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     10:15-11:15 IST candle (the "next one hour" candle after the
     trigger forms) and only when the breakout-quality filter passed
     (see BREAKOUT_DROP_PCT_LIMIT / "_crossed" in build_open_strike_scanner).
-    Uses the SAME persisted alert-state file as the Intraday tab
-    (tagged "1HR BO:<symbol>"). The crossed flag is checked internally
+    Uses the persisted alert-state file (tagged "1HR BO:<symbol>") so
+    de-duplication survives restarts. The crossed flag is checked internally
     here even though the Breakout column itself is no longer shown in
     the table.
 
@@ -694,9 +405,9 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     if not newly_triggered:
         return
 
-    # One Telegram message per option — same reasoning as the Intraday
-    # tab above. Also logs each fired alert (LTP/Trigger/TGT/SL at the
-    # moment of crossing) to the CSV alert log for later TGT/SL review.
+    # One Telegram message per option, sent and persisted independently.
+    # Also logs each fired alert (LTP/Trigger/TGT/SL at the moment of
+    # crossing) to the CSV alert log for later TGT/SL review.
     sent_count = 0
     fail_count = 0
 
@@ -732,32 +443,7 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
 
 
 # ============================================================
-# NSE JSON (local file — used by Intraday tab's ATM match)
-# ============================================================
-
-NSE_JSON_PATH = "NSE.json"
-
-
-@st.cache_data
-def load_nse_json():
-    if os.path.exists(NSE_JSON_PATH):
-        try:
-            df = pd.read_json(NSE_JSON_PATH)
-            if "segment" in df.columns:
-                df = df[df["segment"] == "NSE_FO"]
-            df["expiry_dt"] = pd.to_datetime(df["expiry"], unit="ms").dt.normalize()
-            return df
-        except Exception as e:
-            st.error(f"Error loading NSE.json: {e}")
-            return pd.DataFrame()
-    else:
-        st.error(f"NSE.json not found at {NSE_JSON_PATH}")
-        return pd.DataFrame()
-
-
-# ============================================================
-# LIVE INSTRUMENT FILE (1HR BO tab — fetched directly from Upstox,
-# independent of the local NSE.json file above)
+# LIVE INSTRUMENT FILE (fetched directly from Upstox)
 # ============================================================
 
 LIVE_INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
@@ -816,322 +502,8 @@ def chunk_list(items, size=300):
 
 
 # ============================================================
-# PROCESS BHAVCOPY (Intraday tab)
-# ============================================================
-
-def process_bhavcopy(bhav_file, df_json, target_expiry_index=0):
-    try:
-        df_bhav = pd.read_csv(bhav_file)
-
-        required_cols = ["FinInstrmTp", "TckrSymb", "XpryDt", "ClsPric", "StrkPric", "OptnTp", "HghPric", "LwPric", "LastPric"]
-        if not all(col in df_bhav.columns for col in required_cols):
-            st.error(f"Uploaded file missing required columns: {required_cols}")
-            return pd.DataFrame()
-
-        futures = df_bhav[df_bhav["FinInstrmTp"].isin(["STF", "IDF"])].copy()
-        if futures.empty:
-            st.warning("No Futures data found in uploaded file.")
-            return pd.DataFrame()
-
-        futures["XpryDt"] = pd.to_datetime(futures["XpryDt"])
-
-        ist_now = get_ist_now()
-        today = ist_now.replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
-
-        futures = futures[futures["XpryDt"] >= today]
-        if futures.empty:
-            st.warning("No future expiries found in the uploaded file.")
-            return pd.DataFrame()
-
-        futures = futures.sort_values("XpryDt")
-        available_expiries = sorted(futures["XpryDt"].unique())
-
-        if not available_expiries:
-            st.warning("No future expiry dates found in uploaded file.")
-            return pd.DataFrame(), None, []
-
-        if target_expiry_index >= len(available_expiries):
-            target_expiry = available_expiries[-1]
-        else:
-            target_expiry = available_expiries[target_expiry_index]
-
-        near_futures = futures[futures["XpryDt"] == target_expiry].copy()
-        near_futures = near_futures[["TckrSymb", "ClsPric", "XpryDt"]]
-        near_futures = near_futures.rename(columns={"ClsPric": "FuturePrice", "XpryDt": "FutureExpiryDate"})
-
-        options = df_bhav[df_bhav["OptnTp"].isin(["CE", "PE"])].copy()
-        if options.empty:
-            st.warning("No Options data found in uploaded file.")
-            return pd.DataFrame(), target_expiry, available_expiries
-
-        options["XpryDt"] = pd.to_datetime(options["XpryDt"])
-
-        merged = pd.merge(options, near_futures, on="TckrSymb")
-        merged = merged[merged["XpryDt"] == merged["FutureExpiryDate"]]
-
-        merged["Diff"] = abs(merged["StrkPric"] - merged["FuturePrice"])
-
-        best_strikes = merged[["TckrSymb", "StrkPric", "Diff"]].drop_duplicates()
-        best_strikes = best_strikes.sort_values(by=["TckrSymb", "Diff", "StrkPric"])
-        best_strikes = best_strikes.groupby("TckrSymb").first().reset_index()
-
-        atm_options = pd.merge(merged, best_strikes[["TckrSymb", "StrkPric"]], on=["TckrSymb", "StrkPric"])
-        atm_rows = atm_options[[
-            "TckrSymb", "XpryDt", "StrkPric", "OptnTp", "FuturePrice", "ClsPric",
-            "FinInstrmNm", "HghPric", "LwPric", "LastPric"
-        ]].copy()
-
-        atm_rows["XpryDt"] = atm_rows["XpryDt"].dt.normalize()
-
-        result = pd.merge(
-            atm_rows,
-            df_json,
-            left_on=["TckrSymb", "StrkPric", "OptnTp", "XpryDt"],
-            right_on=["underlying_symbol", "strike_price", "instrument_type", "expiry_dt"],
-            how="inner"
-        )
-
-        if result.empty and not atm_rows.empty:
-            st.error(
-                "Data mismatch: Found options in Bhavcopy but couldn't find "
-                "them in NSE.json. Please update NSE.json via the sidebar."
-            )
-
-        final_df = result[[
-            "TckrSymb", "XpryDt", "StrkPric", "OptnTp",
-            "FuturePrice", "ClsPric", "instrument_key",
-            "HghPric", "LwPric", "LastPric"
-        ]].copy()
-
-        final_df = final_df.rename(columns={
-            "TckrSymb": "Symbol",
-            "XpryDt": "ExpiryDate",
-            "StrkPric": "StrikePrice",
-            "OptnTp": "OptionType",
-            "ClsPric": "Trigger",
-            "HghPric": "HighPrice",
-            "LwPric": "LowPrice",
-            "LastPric": "LastPrice"
-        })
-
-        # --------------------------------------------------------
-        # Camarilla levels — computed off the raw close price.
-        #   R3 = C + (H-L) * 1.1/4   -> used as SL
-        #   R4 = C + (H-L) * 1.1/2   -> used as Trigger ("Cam R4")
-        #   R5 = (H/L) * C           -> used as TGT
-        #   R6 = R5 + 1.1*(R5-R4)    -> kept for reference
-        # --------------------------------------------------------
-        close = final_df["Trigger"]
-        hl_range = final_df["HighPrice"] - final_df["LowPrice"]
-
-        final_df["Camarilla_R3"] = close + hl_range * 1.1 / 4
-        final_df["Camarilla_R4"] = close + hl_range * 1.1 / 2
-        final_df["Camarilla_R5"] = (final_df["HighPrice"] / final_df["LowPrice"]) * close
-        final_df["Camarilla_R6"] = final_df["Camarilla_R5"] + 1.1 * (final_df["Camarilla_R5"] - final_df["Camarilla_R4"])
-
-        return final_df, target_expiry, available_expiries
-
-    except Exception as e:
-        st.error(f"Error processing file: {e}")
-        return pd.DataFrame(), None, []
-
-
-# ============================================================
-# FETCH LTP — Intraday bhavcopy tab (Upstox v3 LTP endpoint)
-# ============================================================
-
-def fetch_ltp(instrument_keys, token):
-    if not token:
-        return {}
-
-    url = "https://api.upstox.com/v3/market-quote/ltp"
-    headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
-
-    batch_size = 50
-    ltp_map = {}
-
-    batches = [instrument_keys[i:i + batch_size] for i in range(0, len(instrument_keys), batch_size)]
-
-    def fetch_batch(batch):
-        params = {"instrument_key": ",".join(batch)}
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("status") == "success":
-                    quotes = data.get("data", {})
-                    result = {}
-                    for key, details in quotes.items():
-                        inst_token = details.get("instrument_token")
-                        last_price = details.get("last_price")
-                        if inst_token is not None:
-                            result[inst_token] = last_price
-                    return result
-        except Exception:
-            pass
-        return {}
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(fetch_batch, batch) for batch in batches]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                batch_result = future.result()
-                if batch_result:
-                    ltp_map.update(batch_result)
-            except Exception:
-                pass
-
-    return ltp_map
-
-
-# ============================================================
-# DISPLAY — Intraday option chain
-# ============================================================
-
-def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, telegram_bot_token="", telegram_chat_id=""):
-    st.caption(f"Last Updated: {get_ist_now().strftime('%H:%M:%S')} IST")
-    if df.empty:
-        st.info("No data to display. Please upload a valid Bhavcopy in the sidebar.")
-        return
-
-    if access_token:
-        all_keys = df["instrument_key"].dropna().unique().tolist()
-
-        ist_now = get_ist_now()
-        current_time = ist_now.time()
-        start_time = datetime.strptime("09:00", "%H:%M").time()
-        end_time = datetime.strptime("15:40", "%H:%M").time()
-
-        is_market_hours = start_time <= current_time <= end_time
-
-        ltp_cache = load_ltp_cache()
-        missing_keys = [k for k in all_keys if k not in ltp_cache]
-
-        force_refresh = st.session_state.get("force_refresh_ltp", False)
-
-        should_fetch = False
-
-        if is_market_hours:
-            should_fetch = True
-        elif force_refresh:
-            should_fetch = True
-            st.session_state["force_refresh_ltp"] = False
-        elif missing_keys:
-            should_fetch = True
-
-        if should_fetch:
-            keys_to_fetch = all_keys if is_market_hours else missing_keys
-            fetched_data = fetch_ltp(keys_to_fetch, access_token)
-            if fetched_data:
-                save_ltp_cache(fetched_data)
-                ltp_cache = load_ltp_cache()
-
-        ltp_data = {k: ltp_cache.get(k, 0.0) for k in all_keys}
-        df["ltp"] = df["instrument_key"].map(ltp_data).fillna(0.0)
-    else:
-        df["ltp"] = 0.0
-        st.warning("Enter Access Token in sidebar to see live LTP.")
-
-    # Trigger = Camarilla R4, TGT = Camarilla R5, SL = Camarilla R3
-    if "Camarilla_R4" in df.columns:
-        df["Trigger"] = df["Camarilla_R4"]
-    if "Camarilla_R5" in df.columns:
-        df["TGT"] = df["Camarilla_R5"]
-    if "Camarilla_R3" in df.columns:
-        df["SL"] = df["Camarilla_R3"]
-
-    def calculate_numeric_change(row):
-        try:
-            ocp = float(row["Trigger"])
-            ltp = float(row["ltp"])
-            if ocp > 0 and ltp > 0:
-                return (ltp / ocp * 100)
-            return 0.0
-        except:
-            return 0.0
-
-    df["change_val"] = df.apply(calculate_numeric_change, axis=1)
-    df["change %"] = df["change_val"]
-
-    blacklist = load_blacklist()
-    current_time = get_ist_now().time()
-    cutoff_time = datetime.strptime("09:30", "%H:%M").time()
-
-    if current_time < cutoff_time:
-        violators = df[df["change %"] >= 100]["instrument_key"].tolist()
-        if violators:
-            blacklist.update(violators)
-            save_blacklist(blacklist)
-
-    if blacklist:
-        df = df[~df["instrument_key"].isin(blacklist)]
-
-    # Telegram trigger alerts — full CE+PE set, before the split below.
-    check_and_alert_triggers(df, key_suffix, telegram_enabled, telegram_bot_token, telegram_chat_id)
-
-    calls_df = df[df["OptionType"] == "CE"].copy()
-    puts_df = df[df["OptionType"] == "PE"].copy()
-
-    calls_df = calls_df.sort_values(by="change %", ascending=False)
-    puts_df = puts_df.sort_values(by="change %", ascending=False)
-
-    # Rename Trigger -> "Cam R4" for display only (internal calcs above
-    # still use the "Trigger" column name).
-    calls_display = calls_df.rename(columns={"Trigger": "Cam R4"})
-    puts_display = puts_df.rename(columns={"Trigger": "Cam R4"})
-
-    display_cols = ["Symbol", "StrikePrice", "Cam R4", "TGT", "SL", "ltp", "change %"]
-
-    def color_change(val):
-        try:
-            val = float(val)
-        except:
-            return ""
-        if val >= 100:
-            return "background-color: darkgreen; color: white; font-weight: bold;"
-        elif val >= 80:
-            return "background-color: lightgreen; color: black;"
-        return ""
-
-    format_dict = {
-        "change %": "{:.2f}%",
-        "Cam R4": "{:.2f}",
-        "TGT": "{:.2f}",
-        "SL": "{:.2f}",
-        "ltp": "{:.2f}",
-        "StrikePrice": "{:.2f}"
-    }
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Calls (CE)")
-        st.dataframe(
-            calls_display[display_cols].style
-            .map(color_change, subset=["change %"])
-            .format(format_dict)
-            .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
-            hide_index=True,
-            width="stretch",
-            height=1800
-        )
-
-    with col2:
-        st.subheader("Puts (PE)")
-        st.dataframe(
-            puts_display[display_cols].style
-            .map(color_change, subset=["change %"])
-            .format(format_dict)
-            .set_properties(**{"font-weight": "600", "text-align": "center", "font-size": "16px"}),
-            hide_index=True,
-            width="stretch",
-            height=1800
-        )
-
-
-# ============================================================
 # 1HR BO — LIVE ORB SCANNER (uses Upstox v3 OHLC/LTP + intraday
-# hourly candles directly, independent of the Intraday bhavcopy tab)
+# hourly candles directly)
 #
 #   Trigger = high of the first 1-hour candle (9:15-10:15 IST).
 #   TGT = Trigger + 20%, SL = Trigger - 5%.
@@ -1318,10 +690,40 @@ def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
                 second_hour_low = candles_sorted[1][3]
                 second_hour_high = candles_sorted[1][2]
 
+            # Status = which of TGT/SL got hit FIRST after entry (or
+            # "Open" if neither has been hit yet). Walk every candle from
+            # the entry candle (10:15) onward in chronological order and
+            # stop at the first one whose high reached TGT or whose low
+            # reached SL. If a single candle's range spans BOTH levels
+            # (common for cheap, volatile options), we can't tell from
+            # OHLC alone which was touched first within that hour — as a
+            # simple tie-break, a candle that closed above its open is
+            # treated as having pushed up into TGT first, and one that
+            # closed below its open as having dropped into SL first.
+            tgt = trigger * 1.20
+            sl = trigger * 0.95
+            status = "Open"
+
+            for c in candles_sorted[1:]:
+                c_open, c_high, c_low, c_close = c[1], c[2], c[3], c[4]
+                hit_tgt = c_high is not None and c_high >= tgt
+                hit_sl = c_low is not None and c_low <= sl
+
+                if hit_tgt and hit_sl:
+                    status = "TGT Hit" if (c_close or 0) >= (c_open or 0) else "SL Hit"
+                    break
+                elif hit_tgt:
+                    status = "TGT Hit"
+                    break
+                elif hit_sl:
+                    status = "SL Hit"
+                    break
+
             info = {
                 "trigger": trigger,
                 "second_hour_low": second_hour_low,
                 "second_hour_high": second_hour_high,
+                "status": status,
             }
             return instrument_key, info, None
 
@@ -1491,6 +893,12 @@ def build_open_strike_scanner(access_token, expiry_choice):
     shortlisted["_second_hour_high"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "second_hour_high"))
     shortlisted["_second_hour_high"] = pd.to_numeric(shortlisted["_second_hour_high"], errors="coerce")
 
+    # Status = which of TGT/SL was hit FIRST after entry, or "Open" if
+    # neither has been hit yet — computed candle-by-candle in
+    # _fetch_single_orb_data (see its comments for the same-candle
+    # tie-break rule).
+    shortlisted["Status"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "status", "Open"))
+
     # TGT = Trigger + 20%, SL = Trigger - 5%
     shortlisted["TGT"] = shortlisted["Trigger"] * 1.20
     shortlisted["SL"] = shortlisted["Trigger"] * 0.95
@@ -1549,7 +957,7 @@ def build_open_strike_scanner(access_token, expiry_choice):
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
     result = shortlisted[[
-        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "_crossed", "Lot", "Cap"
+        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "_crossed", "Lot", "Cap"
     ]].copy()
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Drop %"]:
@@ -1601,8 +1009,9 @@ DECIMAL_COLS = {
 # Columns actually rendered in the 1HR BO table — "_crossed" (the
 # internal alert flag) is deliberately excluded. "Drop %" shows how far
 # the 10:15 candle dipped below Trigger (breakout-quality filter, must
-# be <= BREAKOUT_DROP_PCT_LIMIT for a valid breakout).
-DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Lot", "Cap"]
+# be <= BREAKOUT_DROP_PCT_LIMIT for a valid breakout). "Status" shows
+# whether TGT or SL was hit first since entry (or "Open").
+DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "Lot", "Cap"]
 
 
 def style_away_percent(value):
@@ -1614,6 +1023,16 @@ def style_away_percent(value):
             return "background-color: lightgreen; color: black; font-weight: bold;"
     except Exception:
         pass
+    return ""
+
+
+def style_status(value):
+    if value == "TGT Hit":
+        return "background-color: darkgreen; color: white; font-weight: bold;"
+    if value == "SL Hit":
+        return "background-color: darkred; color: white; font-weight: bold;"
+    if value == "Open":
+        return "background-color: #FFF3CD; color: #856404; font-weight: bold;"
     return ""
 
 
@@ -1652,6 +1071,7 @@ def show_side_by_side(ce_table, pe_table):
             ce_style = (
                 ce_table[DISPLAY_COLS_1HR_BO].style
                 .map(style_away_percent, subset=["Away %"])
+                .map(style_status, subset=["Status"])
                 .pipe(apply_column_tints, CE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
             )
@@ -1665,6 +1085,7 @@ def show_side_by_side(ce_table, pe_table):
             pe_style = (
                 pe_table[DISPLAY_COLS_1HR_BO].style
                 .map(style_away_percent, subset=["Away %"])
+                .map(style_status, subset=["Status"])
                 .pipe(apply_column_tints, PE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
             )
@@ -1672,7 +1093,7 @@ def show_side_by_side(ce_table, pe_table):
 
 
 # ============================================================
-# CONFIGURATION (shared sidebar for both tabs)
+# CONFIGURATION (sidebar)
 # ============================================================
 
 is_client_view = "UPSTOX_ACCESS_TOKEN" in st.secrets and st.secrets["UPSTOX_ACCESS_TOKEN"].strip() != ""
@@ -1716,7 +1137,7 @@ else:
             "Select Expiry Month",
             options=["Current Month", "Next Month"],
             index=0,
-            help="Used by the 1HR BO tab. Intraday tab always uses the nearest expiry."
+            help="Which monthly expiry's ATM options the 1HR BO scanner tracks."
         )
 
         st.markdown("---")
@@ -1726,7 +1147,7 @@ else:
             "Enable Trigger Alerts",
             value=st.session_state.get("telegram_enabled", False),
             key="telegram_enabled",
-            help="Sends a Telegram message the moment either tab's option LTP crosses its Trigger price. 1HR BO alerts only fire after 10:15 IST."
+            help="Sends a Telegram message the moment an option's 10:15 candle confirms a valid 1HR BO breakout. Alerts only fire inside the 10:15-11:15 IST window."
         )
 
         telegram_bot_token = st.text_input(
@@ -1750,7 +1171,7 @@ else:
 
         if reset_alert_state_clicked:
             save_trigger_alert_state(set())
-            st.success("Alert state cleared for both tabs — already-triggered options will alert again.")
+            st.success("Alert state cleared — already-triggered options will alert again.")
 
         if test_telegram_clicked:
             success, error = send_telegram_alert(
@@ -1764,115 +1185,38 @@ else:
                 st.error(f"Test message failed: {error}")
 
         st.markdown("---")
-        st.header("Data Management")
-
-        if st.button("⚡ Refresh LTP Now", width="stretch"):
-            st.session_state["force_refresh_ltp"] = True
-            st.rerun()
-
-        st.subheader("NSE Instrument JSON (Intraday match)")
-
-        if st.button("🔄 Download Latest"):
-            try:
-                with st.spinner("Downloading latest NSE.json..."):
-                    url = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
-                    headers = {"User-Agent": "Mozilla/5.0"}
-                    response = requests.get(url, headers=headers, stream=True)
-
-                    if response.status_code == 200:
-                        with open(NSE_JSON_PATH, "wb") as f_out:
-                            with gzip.GzipFile(fileobj=response.raw) as f_in:
-                                shutil.copyfileobj(f_in, f_out)
-                        st.cache_data.clear()
-                        st.success("Updated successfully!")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to download. Status: {response.status_code}")
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-        st.subheader("Intraday Bhavcopy")
-        up_i = st.file_uploader("Upload Intraday Bhavcopy", type=["zip"], key="i_up")
-        if up_i is not None:
-            csv_content, csv_name = extract_csv_from_zip(up_i)
-            if csv_content:
-                with open(FILES["Intraday"], "wb") as f:
-                    f.write(csv_content)
-                date_str = extract_date_from_filename(csv_name)
-                if date_str:
-                    save_meta("Intraday", date_str)
-                st.success(f"Intraday file updated from {csv_name}!")
-
-        meta = load_meta()
-        if "Intraday" in meta and os.path.exists(FILES["Intraday"]):
-            st.caption(f"📅 Data Date: {meta['Intraday']}")
-        elif os.path.exists(FILES["Intraday"]):
-            i_time = os.path.getmtime(FILES["Intraday"])
-            st.caption(f"📅 Last Updated: {datetime.fromtimestamp(i_time).strftime('%Y-%m-%d %H:%M')}")
-
-        st.markdown("---")
         st.header("Auto Refresh")
-        st.caption("Drives both the Intraday and 1HR BO tabs.")
 
         auto_refresh = st.checkbox("Enable Auto-Refresh", value=False)
         refresh_interval = st.slider("Refresh Interval (seconds)", min_value=5, max_value=60, value=15)
 
 
 # ============================================================
-# MAIN PAGE
+# MAIN PAGE — 1HR BO live ORB scanner only (Trigger = 1st hour High,
+# TGT = +20%, SL = -5%, breakout evaluated off the 10:15-11:15 candle)
 # ============================================================
 
-st.title("Stock Option Scanner")
+st.title("Stk Op Scanner")
+st.header("1HR Breakout Options (Live)")
 
-nse_json_df = load_nse_json()
+run_every = refresh_interval if auto_refresh else None
 
-if not nse_json_df.empty:
-    tab_intraday, tab_1hr_bo = st.tabs(["Intraday", "1HR BO"])
-
-    run_every = refresh_interval if auto_refresh else None
-
-    # --------------------------------------------------------
-    # INTRADAY
-    # --------------------------------------------------------
-    with tab_intraday:
-        st.header("Intraday Options")
-        if os.path.exists(FILES["Intraday"]):
-            @st.fragment(run_every=run_every)
-            def show_intraday():
-                df_i, target_exp, all_exps = process_bhavcopy(FILES["Intraday"], nse_json_df, target_expiry_index=0)
-                if target_exp:
-                    st.info(f"📅 Displaying Expiry: **{target_exp.strftime('%d-%b-%Y')}**")
-                display_option_chain(df_i, access_token, "Intraday", telegram_enabled, telegram_bot_token, telegram_chat_id)
-            show_intraday()
-        else:
-            st.warning("Intraday Bhavcopy file not found. Please upload in the sidebar.")
-
-    # --------------------------------------------------------
-    # 1HR BO — live ORB scanner (Trigger = 1st hour High, TGT=+35%, SL=-20%)
-    # --------------------------------------------------------
-    with tab_1hr_bo:
-        st.header("1HR Breakout Options (Live)")
-
-        if not access_token:
-            st.warning("Enter your Upstox Access Token in the sidebar first.")
-        else:
-            @st.fragment(run_every=run_every)
-            def show_1hr_bo():
-                ce_table, pe_table = build_open_strike_scanner(
-                    access_token, expiry_type
-                )
-
-                if not ce_table.empty or not pe_table.empty:
-                    if telegram_enabled:
-                        combined = pd.concat([ce_table, pe_table], ignore_index=True)
-                        check_and_alert_1hr_bo(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
-
-                    show_side_by_side(ce_table, pe_table)
-                else:
-                    st.info("No data yet — click Refresh LTP Now or wait for market data.")
-
-            show_1hr_bo()
-
+if not access_token:
+    st.warning("Enter your Upstox Access Token in the sidebar first.")
 else:
-    st.error("Critical Error: NSE.json could not be loaded.")
+    @st.fragment(run_every=run_every)
+    def show_1hr_bo():
+        ce_table, pe_table = build_open_strike_scanner(
+            access_token, expiry_type
+        )
+
+        if not ce_table.empty or not pe_table.empty:
+            if telegram_enabled:
+                combined = pd.concat([ce_table, pe_table], ignore_index=True)
+                check_and_alert_1hr_bo(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
+
+            show_side_by_side(ce_table, pe_table)
+        else:
+            st.info("No data yet — waiting for market data.")
+
+    show_1hr_bo()
