@@ -1147,7 +1147,7 @@ def show_side_by_side(ce_table, pe_table):
 
 ENTRY_MULT = 2.0   # Entry = ATL * ENTRY_MULT
 EXIT_MULT = 2.0    # TGT   = Entry * EXIT_MULT
-SL_MULT = 1.5      # SL    = ATL * SL_MULT
+SL_MULT = 1.3      # SL    = ATL * SL_MULT
 
 ATL_HIST_UNIT = "days"
 ATL_HIST_INTERVAL = "1"
