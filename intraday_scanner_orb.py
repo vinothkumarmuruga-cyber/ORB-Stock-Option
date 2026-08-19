@@ -1136,16 +1136,23 @@ def display_option_chain(df, access_token, key_suffix, telegram_enabled=False, t
 #   Trigger = high of the first 1-hour candle (9:15-10:15 IST).
 #   TGT = Trigger + 20%, SL = Trigger - 5%.
 #   Breakout is only ever evaluated off the NEXT one-hour candle
-#   (10:15-11:15 IST) — the window is enforced by
-#   ORB_ENTRY_WINDOW_START / ORB_ENTRY_WINDOW_END above.
-#   "Crossed" (valid breakout) requires BOTH:
-#     1) live LTP >= Trigger, evaluated only inside the 10:15-11:15
-#        window (no entries before 10:15 or after 11:15), AND
-#     2) the breakout-quality filter: the low of the 10:15 candle
-#        (so far) did not drop more than BREAKOUT_DROP_PCT_LIMIT
-#        (5%) below Trigger before crossing back above it.
-#   Used only to fire the Telegram alert — no Breakout column shown
-#   in the table, though the Drop % column surfaces the same check.
+#   (10:15-11:15 IST), using that candle's own OHLC rather than a live
+#   LTP snapshot:
+#     1) breakout-quality filter: the LOW of the 10:15 candle must not
+#        have dropped more than BREAKOUT_DROP_PCT_LIMIT (5%) below
+#        Trigger, AND
+#     2) the HIGH of the 10:15 candle must have actually reached
+#        Trigger.
+#   Both together = "_crossed" (valid breakout). Because this is based
+#   on the candle's OHLC rather than current LTP, it stays True for the
+#   rest of the day even if price later pulls back — matching the
+#   reference backtest, which keeps every entered trade listed under
+#   Hit TGT / Hit SL / Still open regardless of where price ends up.
+#   Only rows with "_crossed" True are shown in the CE/PE tables at
+#   all (no more "every shortlisted top mover" display). The Telegram
+#   alert additionally only fires new alerts while the clock is inside
+#   the 10:15-11:15 window (see check_and_alert_1hr_bo) — no NEW alerts
+#   start after 11:15, even though "_crossed" itself stays True.
 # ============================================================
 
 def fetch_future_open_v3(instrument_keys, headers):
@@ -1296,16 +1303,25 @@ def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
 
             # candle format: [timestamp, open, high, low, close, volume, oi]
             # The second candle (10:15-11:15 IST) is what the breakout is
-            # actually evaluated against. While that hour is still forming,
-            # this is its running low so far; once the hour closes it's the
-            # final low. Not present yet before 10:15.
+            # actually evaluated against — both its low (quality filter)
+            # and its high (did it ever actually reach Trigger). While
+            # that hour is still forming these are the running low/high
+            # so far; once the hour closes they're final. Neither is
+            # present yet before 10:15. Using the candle's high (not the
+            # live LTP snapshot) to decide whether Trigger was reached
+            # means a strike that broke out and later pulled back still
+            # correctly stays flagged as having triggered for the rest
+            # of the day, instead of disappearing once price falls back.
             second_hour_low = None
+            second_hour_high = None
             if len(candles_sorted) >= 2:
                 second_hour_low = candles_sorted[1][3]
+                second_hour_high = candles_sorted[1][2]
 
             info = {
                 "trigger": trigger,
                 "second_hour_low": second_hour_low,
+                "second_hour_high": second_hour_high,
             }
             return instrument_key, info, None
 
@@ -1350,7 +1366,7 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     return result, sample_errors
 
 
-def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=0, min_lots=0):
+def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -1441,10 +1457,9 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
         np.nan
     )
 
-    selected["Ctr"] = np.where(selected["Lot"] > 0, selected["volume"] / selected["Lot"], np.nan)
     selected["Capital"] = selected["ltp"] * selected["Lot"]
 
-    selected = selected.rename(columns={"ltp": "LTP", "volume": "Vol", "Capital": "Capital Required"})
+    selected = selected.rename(columns={"ltp": "LTP", "Capital": "Capital Required"})
 
     # Top-N cutoff — the N CE and N PE with the biggest day Chg% are
     # tracked (N=50 by default), out of every stock's ATM CE/PE universe.
@@ -1466,6 +1481,9 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
 
     shortlisted["_second_hour_low"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "second_hour_low"))
     shortlisted["_second_hour_low"] = pd.to_numeric(shortlisted["_second_hour_low"], errors="coerce")
+
+    shortlisted["_second_hour_high"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "second_hour_high"))
+    shortlisted["_second_hour_high"] = pd.to_numeric(shortlisted["_second_hour_high"], errors="coerce")
 
     # TGT = Trigger + 20%, SL = Trigger - 5%
     shortlisted["TGT"] = shortlisted["Trigger"] * 1.20
@@ -1494,23 +1512,27 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
     )
     shortlisted["Drop %"] = shortlisted["Drop %"].clip(lower=0)
 
-    # Breakout only evaluated off the 10:15-11:15 candle (the "next one
-    # hour" candle) — no entries before 10:15 or after 11:15.
-    within_entry_window = ORB_ENTRY_WINDOW_START <= get_ist_now().time() <= ORB_ENTRY_WINDOW_END
-
     # Breakout-quality filter: the 10:15 candle's low must not have
     # dropped more than BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger before
     # price crosses back above it. NaN Drop % (no second-hour candle yet)
     # fails the filter, same as before 10:15.
     quality_ok = shortlisted["Drop %"].notna() & (shortlisted["Drop %"] <= BREAKOUT_DROP_PCT_LIMIT)
 
-    # Internal-only flag: used purely to fire the Telegram alert.
-    # Not shown as a column in the table (Breakout column removed).
+    # Valid breakout = quality filter passed AND the 10:15 candle's HIGH
+    # actually reached Trigger. Using the candle's high (not the live LTP
+    # snapshot) makes this persistent for the rest of the day — a strike
+    # that broke out and later pulled back below Trigger (e.g. it went on
+    # to hit SL) still correctly stays flagged as "triggered" instead of
+    # disappearing once price falls back, matching how the reference
+    # backtest keeps every entered trade in its Hit TGT / Hit SL / Still
+    # open lists all day. This is also what only ever fires the Telegram
+    # alert (gated separately to the 10:15-11:15 window in
+    # check_and_alert_1hr_bo, so no NEW alerts start after 11:15 even
+    # though the flag itself stays True).
     shortlisted["_crossed"] = (
-        within_entry_window
-        & shortlisted["Trigger"].notna()
-        & quality_ok
-        & (shortlisted["LTP"] >= shortlisted["Trigger"])
+        quality_ok
+        & shortlisted["_second_hour_high"].notna()
+        & (shortlisted["_second_hour_high"] >= shortlisted["Trigger"])
     )
 
     shortlisted["Away %"] = np.where(
@@ -1521,14 +1543,12 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
     result = shortlisted[[
-        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "_crossed", "Vol", "Ctr", "Lot", "Capital Required"
+        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "_crossed", "Lot", "Capital Required"
     ]].copy()
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Drop %"]:
         result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
 
-    result["Vol"] = pd.to_numeric(result["Vol"], errors="coerce").fillna(0).astype(int)
-    result["Ctr"] = pd.to_numeric(result["Ctr"], errors="coerce").fillna(0).astype(int)
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
     result["Capital Required"] = pd.to_numeric(result["Capital Required"], errors="coerce").round(0).fillna(0).astype(int)
 
@@ -1539,33 +1559,16 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50, min_volume=
     result = result[result["Trigger"].notna()].reset_index(drop=True)
 
     # Only show GENUINE breakouts — matches the backtest's "Triggered
-    # (entered)" list, not just "top movers by day Chg%". A row only
-    # qualifies once:
-    #   1) the 10:15 candle has actually formed (Drop % is known), AND
-    #   2) it stayed within BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger
-    #      before breaking out (the same quality filter as "_crossed"
-    #      above), AND
-    #   3) LTP has actually crossed Trigger (Away % >= 100).
-    # Previously every shortlisted top-N option was shown regardless of
-    # whether it passed this filter, which let options that dropped
-    # 15-20%+ below Trigger before spiking show up looking like clean
-    # breakouts — that's not a valid breakout per the reference backtest.
-    result = result[
-        result["Drop %"].notna()
-        & (result["Drop %"] <= BREAKOUT_DROP_PCT_LIMIT)
-        & (result["LTP"] >= result["Trigger"])
-    ].reset_index(drop=True)
-
-    # Volume / Lots filter ("Strong BO") — a strike can show a big Away %
-    # purely from one or two stale/illiquid trades. Filtering on today's
-    # traded volume (or lots traded — Ctr = Vol / Lot, comparable across
-    # stocks with very different lot sizes) weeds those out so what's
-    # left is breakouts with real participation behind them. A value of
-    # 0 disables that particular filter.
-    if min_volume > 0:
-        result = result[result["Vol"] >= min_volume].reset_index(drop=True)
-    if min_lots > 0:
-        result = result[result["Ctr"] >= min_lots].reset_index(drop=True)
+    # (entered)" list, not just "top movers by day Chg%". A row qualifies
+    # once "_crossed" is True: the 10:15 candle's low stayed within
+    # BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger AND that candle's high
+    # actually reached Trigger. Because "_crossed" is based on the 10:15
+    # candle's OHLC (not the live LTP snapshot), a strike stays listed
+    # here for the rest of the day even after it goes on to hit TGT or
+    # SL and price moves away from Trigger again — exactly like the
+    # reference backtest, which keeps every entered trade in its Hit
+    # TGT / Hit SL / Still open lists regardless of where price ends up.
+    result = result[result["_crossed"]].reset_index(drop=True)
 
     ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
     pe_table = result[result["Symbol"].str.endswith("PE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
@@ -1593,7 +1596,7 @@ DECIMAL_COLS = {
 # internal alert flag) is deliberately excluded. "Drop %" shows how far
 # the 10:15 candle dipped below Trigger (breakout-quality filter, must
 # be <= BREAKOUT_DROP_PCT_LIMIT for a valid breakout).
-DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Vol", "Ctr", "Lot", "Capital Required"]
+DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Lot", "Capital Required"]
 
 
 def style_away_percent(value):
@@ -1680,8 +1683,6 @@ if is_client_view:
     auto_refresh = True
     refresh_interval = 15
     expiry_type = "Current Month"
-    min_volume = 0
-    min_lots = 0
 
     telegram_bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
@@ -1710,35 +1711,6 @@ else:
             options=["Current Month", "Next Month"],
             index=0,
             help="Used by the 1HR BO tab. Intraday tab always uses the nearest expiry."
-        )
-
-        st.markdown("---")
-        st.header("1HR BO Filters")
-
-        min_volume = st.number_input(
-            "Min Volume — shares (Strong BO filter)",
-            min_value=0,
-            value=0,
-            step=50000,
-            help=(
-                "Hides options from the 1HR BO tables whose today's traded "
-                "volume (in shares) is below this. Set 0 to disable."
-            )
-        )
-
-        min_lots = st.number_input(
-            "Min Lots traded — Ctr (Strong BO filter)",
-            min_value=0,
-            value=0,
-            step=50,
-            help=(
-                "Hides options whose today's traded Lots (Ctr = Volume / "
-                "Lot size) is below this. Lot sizes vary a lot across "
-                "stocks (25 to a few thousand shares), so filtering by "
-                "lots traded is a fairer 'strong participation' measure "
-                "across different stocks than a flat volume threshold. "
-                "Set 0 to disable. Use either filter, or both together."
-            )
         )
 
         st.markdown("---")
@@ -1882,16 +1854,8 @@ if not nse_json_df.empty:
             @st.fragment(run_every=run_every)
             def show_1hr_bo():
                 ce_table, pe_table = build_open_strike_scanner(
-                    access_token, expiry_type, top_n=50, min_volume=min_volume, min_lots=min_lots
+                    access_token, expiry_type, top_n=50
                 )
-
-                filter_notes = []
-                if min_volume > 0:
-                    filter_notes.append(f"Vol ≥ {min_volume:,}")
-                if min_lots > 0:
-                    filter_notes.append(f"Lots ≥ {min_lots:,}")
-                if filter_notes:
-                    st.caption("Strong BO filter active — showing only options with " + " and ".join(filter_notes))
 
                 if not ce_table.empty or not pe_table.empty:
                     if telegram_enabled:
