@@ -1329,7 +1329,7 @@ def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
             return instrument_key, None, f"Exception: {e}"
 
 
-@st.cache_data(ttl=15, show_spinner="Computing 1HR BO trigger levels...")
+@st.cache_data(ttl=60, show_spinner="Computing 1HR BO trigger levels...")
 def fetch_orb_map(instrument_keys, headers_tuple):
     headers = dict(headers_tuple)
     result = {}
@@ -1341,7 +1341,11 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     # Cloudflare's rate limiter (HTTP 429) in front of Upstox. Spread the
     # requests out: modest concurrency (5 at a time) processed in small
     # batches with a short pause between batches, instead of firing
-    # everything at once with 12 workers.
+    # everything at once with 12 workers. Now scanning the FULL ATM
+    # universe (~400+ options, no top-N pre-filter — see
+    # build_open_strike_scanner) rather than a top-50 shortlist, so this
+    # takes noticeably longer per refresh (the cache ttl above is set to
+    # 60s to match).
     batch_size = 10
     pause_between_batches = 0.6
 
@@ -1366,7 +1370,7 @@ def fetch_orb_map(instrument_keys, headers_tuple):
     return result, sample_errors
 
 
-def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
+def build_open_strike_scanner(access_token, expiry_choice):
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -1457,15 +1461,17 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
         np.nan
     )
 
-    selected["Capital"] = selected["ltp"] * selected["Lot"]
+    selected["Cap"] = selected["ltp"] * selected["Lot"]
 
-    selected = selected.rename(columns={"ltp": "LTP", "Capital": "Capital Required"})
+    selected = selected.rename(columns={"ltp": "LTP"})
 
-    # Top-N cutoff — the N CE and N PE with the biggest day Chg% are
-    # tracked (N=50 by default), out of every stock's ATM CE/PE universe.
-    ce_candidates = selected[selected["Symbol"].str.endswith("CE")].sort_values("Chg%", ascending=False).head(top_n)
-    pe_candidates = selected[selected["Symbol"].str.endswith("PE")].sort_values("Chg%", ascending=False).head(top_n)
-    shortlisted = pd.concat([ce_candidates, pe_candidates], ignore_index=True)
+    # Evaluate the ENTIRE ATM CE/PE universe (every stock's nearest CE
+    # and nearest PE — matches the backtest's "Total ATM options" count,
+    # e.g. 414-416). No top-N-by-day-Chg% pre-filter: that was cutting
+    # out genuine 10:15-candle breakouts whose overall day change % just
+    # didn't happen to be in the top movers, which is unrelated to
+    # whether the ORB condition itself was actually met.
+    shortlisted = selected.copy()
 
     orb_map, orb_errors = fetch_orb_map(
         tuple(sorted(shortlisted["option_key"].unique())),
@@ -1543,14 +1549,14 @@ def build_open_strike_scanner(access_token, expiry_choice, top_n=50):
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
     result = shortlisted[[
-        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "_crossed", "Lot", "Capital Required"
+        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "_crossed", "Lot", "Cap"
     ]].copy()
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Drop %"]:
         result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
 
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
-    result["Capital Required"] = pd.to_numeric(result["Capital Required"], errors="coerce").round(0).fillna(0).astype(int)
+    result["Cap"] = pd.to_numeric(result["Cap"], errors="coerce").round(0).fillna(0).astype(int)
 
     # Hide rows with no Trigger (ORB level not fetched yet — before
     # 10:15 IST, or dropped due to a rate-limited/failed API call). Only
@@ -1596,7 +1602,7 @@ DECIMAL_COLS = {
 # internal alert flag) is deliberately excluded. "Drop %" shows how far
 # the 10:15 candle dipped below Trigger (breakout-quality filter, must
 # be <= BREAKOUT_DROP_PCT_LIMIT for a valid breakout).
-DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Lot", "Capital Required"]
+DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Lot", "Cap"]
 
 
 def style_away_percent(value):
@@ -1854,7 +1860,7 @@ if not nse_json_df.empty:
             @st.fragment(run_every=run_every)
             def show_1hr_bo():
                 ce_table, pe_table = build_open_strike_scanner(
-                    access_token, expiry_type, top_n=50
+                    access_token, expiry_type
                 )
 
                 if not ce_table.empty or not pe_table.empty:
