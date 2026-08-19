@@ -1127,10 +1127,9 @@ def show_side_by_side(ce_table, pe_table):
 #
 #   Entry = ATL x ENTRY_MULT (2.0)
 #   TGT   = Entry x EXIT_MULT (2.0)   [ = ATL x 4.0 ]
-#   SL    = ATL x SL_MULT (1.5)
-#   (all three multipliers kept exactly as in strategy.py — change them
-#   there... i.e. right here, at the top of this section, if the rule
-#   ever changes.)
+#   SL    = Entry x SL_MULT (0.7)     e.g. Entry=98.60 -> SL=69.02
+#   (all three multipliers live right here, at the top of this section —
+#   change them here if the rule ever changes.)
 #
 #   Status is resolved in two layers:
 #     1) a HISTORICAL pass over the look-back window's completed daily
@@ -1708,7 +1707,7 @@ else:
                 "up to yesterday's close — not literally since listing, "
                 "same as the manual start/end date range in "
                 "atl_fetcher.py. Entry = ATL x 2.0, TGT = Entry x 2.0, "
-                "SL = ATL x 1.5 (from strategy.py, unchanged)."
+                "SL = Entry x 0.7."
             )
         )
 
@@ -1767,7 +1766,7 @@ else:
 # MAIN PAGE — two live scanners, same ATM CE/PE universe:
 #   1HR BO: Trigger = 1st hour High, TGT = +20%, SL = -5%, breakout
 #           evaluated off the 10:15-11:15 candle.
-#   ATL Scanner: Entry = ATL x2.0, TGT = Entry x2.0, SL = ATL x1.5
+#   ATL Scanner: Entry = ATL x2.0, TGT = Entry x2.0, SL = Entry x0.7
 #                (ported from atl_fetcher.py / strategy.py).
 # ============================================================
 
