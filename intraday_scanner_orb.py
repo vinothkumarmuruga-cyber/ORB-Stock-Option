@@ -12,48 +12,61 @@ from urllib.parse import quote
 # ============================================================
 # IST
 # ============================================================
+
 IST_OFFSET = timedelta(hours=5, minutes=30)
 IST = timezone(IST_OFFSET)
+
 
 def get_ist_now():
     return datetime.now(IST)
 
+
 # ============================================================
 # PAGE CONFIG
 # ============================================================
+
 st.set_page_config(
     page_title="Stk Op Scanner",
     layout="wide"
 )
 
+
 # ============================================================
 # CUSTOM CSS
 # ============================================================
+
 st.markdown("""
     <style>
+
         .block-container {
             padding-top: 1rem !important;
             padding-bottom: 1rem !important;
         }
+
         h1 {
             font-size: 1.8rem !important;
             margin-bottom: 0rem !important;
             white-space: nowrap !important;
         }
+
         h2 {
             font-size: 1.1rem !important;
             padding-top: 0.2rem !important;
             margin-bottom: 0.1rem !important;
         }
+
         h3 {
             font-size: 1.0rem !important;
             padding-top: 0.1rem !important;
             margin-bottom: 0.1rem !important;
         }
+
         /* Tabs */
+
         .stTabs [data-baseweb="tab-list"] {
             gap: 10px;
         }
+
         .stTabs [data-baseweb="tab"] {
             height: 45px;
             white-space: pre-wrap;
@@ -64,46 +77,49 @@ st.markdown("""
             font-weight: 600;
             border: 1px solid #d6d6d6;
         }
+
         .stTabs [aria-selected="true"] {
             background-color: #007bff;
             color: white !important;
             border-color: #007bff;
         }
+
         /* Prevent graying during refresh */
+
         .stApp {
             transition: none !important;
         }
+
         [data-testid="stAppViewContainer"],
         [data-testid="stHeader"] {
             opacity: 1 !important;
             transition: none !important;
         }
+
         /* Dataframe */
+
         div[data-testid="stDataFrame"] {
             font-weight: 600 !important;
         }
+
     </style>
 """, unsafe_allow_html=True)
+
 
 # ============================================================
 # PERSISTENT STORAGE
 # ============================================================
+
 DATA_DIR = "data"
+
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
+
 
 TOKEN_FILE = os.path.join(DATA_DIR, "token.json")
 TRIGGER_ALERT_FILE = os.path.join(DATA_DIR, "trigger_alert_state.json")
 ALERT_LOG_FILE = os.path.join(DATA_DIR, "alert_log.csv")
-# Tracks, per calendar day, every "1HR BO" symbol that has EVER been a
-# genuine breakout (quality filter passed + Trigger reached) on any
-# refresh so far today. This is what makes a row STICKY in the 1HR BO
-# table — see the big comment above the merge logic inside
-# build_open_strike_scanner() for why this file exists (short version:
-# the 10:15-11:15 candle is still forming, so its running low can make a
-# previously-clean breakout look "dirty" on a later refresh and silently
-# disappear from the table even though the breakout genuinely happened).
-CROSSED_STATE_FILE = os.path.join(DATA_DIR, "crossed_state.json")
+
 
 # ============================================================
 # OPTIONAL EXTERNAL PERSISTENCE (GitHub Gist)
@@ -130,15 +146,18 @@ CROSSED_STATE_FILE = os.path.join(DATA_DIR, "crossed_state.json")
 # Without these secrets set, everything falls back to local-disk-only
 # behavior exactly as before — nothing breaks if you skip this.
 # ============================================================
+
 GIST_TOKEN = st.secrets.get("GITHUB_GIST_TOKEN", "")
 GIST_ID = st.secrets.get("GITHUB_GIST_ID", "")
 USE_GIST_PERSISTENCE = bool(GIST_TOKEN and GIST_ID)
+
 
 def _gist_headers():
     return {
         "Authorization": f"token {GIST_TOKEN}",
         "Accept": "application/vnd.github+json"
     }
+
 
 def _gist_read_file(filename):
     """Returns the raw text content of one file inside the configured
@@ -158,6 +177,7 @@ def _gist_read_file(filename):
     except Exception:
         return None
 
+
 def _gist_write_file(filename, content_str):
     """Writes (creates/overwrites) one file inside the configured Gist.
     Returns True on success, False otherwise (including if not
@@ -176,11 +196,14 @@ def _gist_write_file(filename, content_str):
     except Exception:
         return False
 
+
 # ============================================================
 # TOKEN — local disk first (fast), Gist as durable backup/fallback
 # ============================================================
+
 def load_token():
     today_str = get_ist_now().strftime("%Y-%m-%d")
+
     if os.path.exists(TOKEN_FILE):
         try:
             with open(TOKEN_FILE, "r") as f:
@@ -189,6 +212,7 @@ def load_token():
                     return data.get("token", "")
         except:
             pass
+
     # Local copy missing/stale (likely a fresh container after a restart)
     # — try the Gist backup before giving up.
     if USE_GIST_PERSISTENCE:
@@ -207,7 +231,9 @@ def load_token():
                     return data.get("token", "")
             except Exception:
                 pass
+
     return ""
+
 
 def save_token(token):
     data = {
@@ -219,8 +245,10 @@ def save_token(token):
             json.dump(data, f)
     except:
         pass
+
     if USE_GIST_PERSISTENCE:
         _gist_write_file("token.json", json.dumps(data))
+
 
 # ============================================================
 # TELEGRAM TRIGGER-ALERT STATE
@@ -233,8 +261,10 @@ def save_token(token):
 # Resets automatically each new trading day. Each entry is
 # "1HR BO:<symbol>".
 # ============================================================
+
 def load_trigger_alert_state():
     today_str = get_ist_now().strftime("%Y-%m-%d")
+
     if os.path.exists(TRIGGER_ALERT_FILE):
         try:
             with open(TRIGGER_ALERT_FILE, "r") as f:
@@ -243,6 +273,7 @@ def load_trigger_alert_state():
                     return set(data.get("keys", []))
         except:
             pass
+
     # Local copy missing/stale — likely a fresh container after a
     # restart. Try the Gist backup before falling back to empty.
     if USE_GIST_PERSISTENCE:
@@ -260,7 +291,9 @@ def load_trigger_alert_state():
                     return keys
             except Exception:
                 pass
+
     return set()
+
 
 def save_trigger_alert_state(keys):
     data = {
@@ -272,58 +305,10 @@ def save_trigger_alert_state(keys):
             json.dump(data, f)
     except:
         pass
+
     if USE_GIST_PERSISTENCE:
         _gist_write_file("trigger_alert_state.json", json.dumps(data))
 
-# ============================================================
-# "EVER CROSSED" STATE (1HR BO row-visibility stickiness)
-#
-# Same on-disk + Gist pattern as the Telegram alert-dedup state above,
-# but scoped separately (own file) because this is NOT about alert
-# de-duplication — it drives which rows stay VISIBLE in the 1HR BO
-# table, independent of whether Telegram alerts are even enabled.
-# Resets automatically each new trading day (Trigger/TGT/SL are also
-# recomputed fresh each day off the first-hour candle).
-# ============================================================
-def load_crossed_state():
-    today_str = get_ist_now().strftime("%Y-%m-%d")
-    if os.path.exists(CROSSED_STATE_FILE):
-        try:
-            with open(CROSSED_STATE_FILE, "r") as f:
-                data = json.load(f)
-                if data.get("date") == today_str:
-                    return set(data.get("symbols", []))
-        except:
-            pass
-    if USE_GIST_PERSISTENCE:
-        raw = _gist_read_file("crossed_state.json")
-        if raw:
-            try:
-                data = json.loads(raw)
-                if data.get("date") == today_str:
-                    symbols = set(data.get("symbols", []))
-                    try:
-                        with open(CROSSED_STATE_FILE, "w") as f:
-                            json.dump({"date": today_str, "symbols": list(symbols)}, f)
-                    except:
-                        pass
-                    return symbols
-            except Exception:
-                pass
-    return set()
-
-def save_crossed_state(symbols):
-    data = {
-        "date": get_ist_now().strftime("%Y-%m-%d"),
-        "symbols": list(symbols)
-    }
-    try:
-        with open(CROSSED_STATE_FILE, "w") as f:
-            json.dump(data, f)
-    except:
-        pass
-    if USE_GIST_PERSISTENCE:
-        _gist_write_file("crossed_state.json", json.dumps(data))
 
 # ============================================================
 # ALERT LOG (CSV) — every fired 1HR BO alert gets one row here: when it
@@ -334,13 +319,16 @@ def save_crossed_state(symbols):
 # so the day's alert history isn't lost on a restart — see the
 # "OPTIONAL EXTERNAL PERSISTENCE" section above.
 # ============================================================
+
 ALERT_LOG_HEADER = "timestamp_ist,tab,symbol,ltp,trigger,tgt,sl\n"
+
 
 def log_alert_event(tab, symbol, ltp, trigger, tgt=None, sl=None):
     ts = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
     tgt_str = f"{tgt:.2f}" if tgt is not None else ""
     sl_str = f"{sl:.2f}" if sl is not None else ""
     line = f"{ts},{tab},{symbol},{ltp:.2f},{trigger:.2f},{tgt_str},{sl_str}\n"
+
     try:
         is_new = not os.path.exists(ALERT_LOG_FILE)
         with open(ALERT_LOG_FILE, "a", newline="") as f:
@@ -349,6 +337,7 @@ def log_alert_event(tab, symbol, ltp, trigger, tgt=None, sl=None):
             f.write(line)
     except Exception:
         pass
+
     if USE_GIST_PERSISTENCE:
         try:
             existing = _gist_read_file("alert_log.csv")
@@ -360,11 +349,14 @@ def log_alert_event(tab, symbol, ltp, trigger, tgt=None, sl=None):
         except Exception:
             pass
 
+
 def send_telegram_alert(bot_token, chat_id, message):
     if not bot_token or not chat_id:
         return False, "Missing bot token or chat ID"
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+
     try:
         response = requests.post(url, json=payload, timeout=10)
         if response.status_code == 200:
@@ -373,6 +365,7 @@ def send_telegram_alert(bot_token, chat_id, message):
     except Exception as e:
         return False, f"Exception: {e}"
 
+
 # The first 1-hour candle (9:15-10:15 IST) is only fully formed once
 # the clock passes 10:15 IST, which is when the Trigger (first-hour
 # high) becomes final. The breakout itself is only ever evaluated
@@ -380,9 +373,9 @@ def send_telegram_alert(bot_token, chat_id, message):
 # hour" candle after the trigger forms. Outside that window (before
 # 10:15, or after 11:15) no new entry is considered valid, matching
 # the backtest logic: entries only fire off the 10:15 candle.
-FIRST_HOUR_START = datetime.strptime("09:15", "%H:%M").time()
 ORB_ENTRY_WINDOW_START = datetime.strptime("10:15", "%H:%M").time()
 ORB_ENTRY_WINDOW_END = datetime.strptime("11:15", "%H:%M").time()
+
 # Kept as an alias for readability where only the start matters.
 ORB_ALERT_CUTOFF = ORB_ENTRY_WINDOW_START
 
@@ -393,25 +386,22 @@ ORB_ALERT_CUTOFF = ORB_ENTRY_WINDOW_START
 # it as a clean breakout.
 BREAKOUT_DROP_PCT_LIMIT = 5.0
 
+
 def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     """
-    1HR BO tab: alerts the moment an option's 10:15-11:15 candle high
-    reaches its Trigger (first 1-hour candle high), evaluated ONLY
-    during the 10:15-11:15 IST candle (the "next one hour" candle after
-    the trigger forms). The breakout-quality drop filter
-    (BREAKOUT_DROP_PCT_LIMIT) no longer gates this — see "_crossed" in
-    build_open_strike_scanner — so an option still alerts even if price
-    later dips more than 5% below Trigger; Drop % is shown in the table
-    as information only. Uses the persisted alert-state file (tagged
-    "1HR BO:<symbol>") so de-duplication survives restarts.
+    1HR BO tab: alerts the moment an option's live LTP crosses its
+    Trigger (first 1-hour candle high), evaluated ONLY during the
+    10:15-11:15 IST candle (the "next one hour" candle after the
+    trigger forms) and only when the breakout-quality filter passed
+    (see BREAKOUT_DROP_PCT_LIMIT / "_crossed" in build_open_strike_scanner).
+    Uses the persisted alert-state file (tagged "1HR BO:<symbol>") so
+    de-duplication survives restarts. The crossed flag is checked internally
+    here even though the Breakout column itself is no longer shown in
+    the table.
 
     No entries before 10:15 (trigger not final yet) or after 11:15
     (the 10:15 candle has closed — matches the backtest rule that
     entries only fire off that one candle).
-
-    Message includes LTP, Trigger, TGT, SL, Away %, Lot and Cap — same
-    field set as the ATL Crossed alert (see check_and_alert_atl) so the
-    alert is self-contained without needing to open the app.
     """
     if not telegram_enabled:
         return
@@ -424,11 +414,14 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
 
     alerted = load_trigger_alert_state()
     newly_triggered = []
+
     for _, row in df.iterrows():
         symbol = row.get("Symbol")
         if not symbol:
             continue
+
         alert_id = f"1HR BO:{symbol}"
+
         if row.get("_crossed") and alert_id not in alerted:
             newly_triggered.append((alert_id, row))
 
@@ -440,19 +433,17 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     # crossing) to the CSV alert log for later TGT/SL review.
     sent_count = 0
     fail_count = 0
+
     for alert_id, row in newly_triggered:
-        away_pct = row.get('Away %')
-        away_str = f"{away_pct:.2f}%" if pd.notna(away_pct) else "-"
-        lot = row.get('Lot', 0)
-        cap = row.get('Cap', 0)
         message = (
-            "🚀 <b>1HR BO Crossed</b>\n\n"
+            "🚀 <b>1HR BO — Trigger Crossed</b>\n\n"
             f"<b>{row['Symbol']}</b>\n"
             f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}\n"
-            f"TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}\n"
-            f"Away %: {away_str}  |  Lot: {lot}  |  Cap: {cap}"
+            f"TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}"
         )
+
         success, error = send_telegram_alert(bot_token, chat_id, message)
+
         if success:
             alerted.add(alert_id)
             save_trigger_alert_state(alerted)
@@ -473,10 +464,13 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     if fail_count:
         st.toast(f"{fail_count} 1HR BO alert(s) failed — will retry next refresh.", icon="⚠️")
 
+
 # ============================================================
 # LIVE INSTRUMENT FILE (fetched directly from Upstox)
 # ============================================================
+
 LIVE_INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+
 
 def normalize_expiry(series):
     return pd.to_datetime(
@@ -484,6 +478,7 @@ def normalize_expiry(series):
         unit="ms",
         errors="coerce"
     ).dt.date
+
 
 @st.cache_data(ttl=3600, show_spinner="Loading live instrument file...")
 def load_live_fo_instruments():
@@ -504,23 +499,30 @@ def load_live_fo_instruments():
 
     return futures, options
 
+
 def get_expiry_for_choice(df, choice):
     today = date.today()
     valid = sorted(df[df["expiry_date"] >= today]["expiry_date"].unique())
+
     if not valid:
         return None
+
     if choice == "Current Month":
         return valid[0]
+
     current_month = today.month
     for exp in valid:
         if exp.month != current_month:
             return exp
+
     return valid[-1] if len(valid) > 1 else valid[0]
+
 
 def chunk_list(items, size=300):
     items = list(items)
     for i in range(0, len(items), size):
         yield items[i:i + size]
+
 
 # ============================================================
 # 1HR BO — LIVE ORB SCANNER (uses Upstox v3 OHLC/LTP + intraday
@@ -528,54 +530,44 @@ def chunk_list(items, size=300):
 #
 #   Trigger = high of the first 1-hour candle (9:15-10:15 IST).
 #   TGT = Trigger + 20%, SL = Trigger - 5%.
-#   "Entered" ("_crossed") is evaluated off the NEXT one-hour candle
-#   (10:15-11:15 IST): the HIGH of that candle must have actually
-#   reached Trigger, at any point during the hour. That's the only
-#   condition — once an option enters, it is tracked (Status: Open /
-#   TGT Hit / SL Hit) for the rest of the day.
-#
-#   Drop % (how far the 10:15 candle's low dipped below Trigger) is
-#   still computed and shown per-row, and flagged red when it exceeds
-#   BREAKOUT_DROP_PCT_LIMIT (5%) — the reference backtest's "clean
-#   breakout" quality threshold — but it is PURELY INFORMATIONAL. It no
-#   longer decides whether a row is shown. Earlier versions of this
-#   scanner used Drop % as a visibility gate, which caused rows
-#   (disproportionately on the PE side, since puts tend to be choppier)
-#   to silently disappear mid-hour: the 10:15 candle's running low only
-#   ever gets LOWER while the hour is still forming, so a symbol that
-#   looked like a clean breakout on one refresh could fail the quality
-#   check a few minutes later purely because price dipped further, even
-#   though the genuine breakout (price reaching Trigger) had already
-#   happened and was already shown. Per explicit request, entries now
-#   stay visible and tracked regardless of how far Drop % goes, either
-#   before or after the entry.
-#
-#   As a safety net against an app restart/redeploy mid-session wiping
-#   the picture, every symbol ever computed as "_crossed" is also
-#   persisted to a per-day file (see load_crossed_state/
-#   save_crossed_state above) and OR'd back in on every refresh.
-#
-#   Only rows that have ever been "_crossed" are shown in the CE/PE
-#   tables at all (no "every shortlisted top mover" display). The
-#   Telegram alert additionally only fires NEW alerts while the clock
-#   is inside the 10:15-11:15 window (see check_and_alert_1hr_bo) — no
-#   new alerts start after 11:15, even though the flag itself stays
-#   True.
+#   Breakout is only ever evaluated off the NEXT one-hour candle
+#   (10:15-11:15 IST), using that candle's own OHLC rather than a live
+#   LTP snapshot:
+#     1) breakout-quality filter: the LOW of the 10:15 candle must not
+#        have dropped more than BREAKOUT_DROP_PCT_LIMIT (5%) below
+#        Trigger, AND
+#     2) the HIGH of the 10:15 candle must have actually reached
+#        Trigger.
+#   Both together = "_crossed" (valid breakout). Because this is based
+#   on the candle's OHLC rather than current LTP, it stays True for the
+#   rest of the day even if price later pulls back — matching the
+#   reference backtest, which keeps every entered trade listed under
+#   Hit TGT / Hit SL / Still open regardless of where price ends up.
+#   Only rows with "_crossed" True are shown in the CE/PE tables at
+#   all (no more "every shortlisted top mover" display). The Telegram
+#   alert additionally only fires new alerts while the clock is inside
+#   the 10:15-11:15 window (see check_and_alert_1hr_bo) — no NEW alerts
+#   start after 11:15, even though "_crossed" itself stays True.
 # ============================================================
+
 def fetch_future_open_v3(instrument_keys, headers):
     url = "https://api.upstox.com/v3/market-quote/ohlc"
     rows = []
     raw_sample = None
+
     for keys in chunk_list(instrument_keys):
         params = {"instrument_key": ",".join(keys), "interval": "1d"}
+
         try:
             response = requests.get(url, headers=headers, params=params, timeout=20)
         except Exception as e:
             st.warning(f"OHLC request error: {e}")
             continue
+
         if response.status_code != 200:
             st.warning(f"OHLC Error {response.status_code}: {response.text[:300]}")
             continue
+
         try:
             payload = response.json()
             data = payload.get("data", {})
@@ -589,50 +581,65 @@ def fetch_future_open_v3(instrument_keys, headers):
         for response_key, item in data.items():
             if not isinstance(item, dict):
                 continue
+
             live = item.get("live_ohlc") or item.get("ohlc") or {}
             prev = item.get("prev_ohlc") or {}
+
             true_key = item.get("instrument_token") or response_key
+
             open_price = (
                 live.get("open")
                 if live.get("open") not in (None, 0)
                 else prev.get("close") if prev.get("close") not in (None, 0)
                 else item.get("last_price")
             )
+
             rows.append({
                 "instrument_key": true_key,
                 "future_open": open_price,
                 "future_ltp": item.get("last_price"),
             })
+
     return pd.DataFrame(rows), raw_sample
+
 
 def fetch_ltp_v3(instrument_keys, headers):
     url = "https://api.upstox.com/v3/market-quote/ltp"
     rows = []
+
     for keys in chunk_list(instrument_keys):
         params = {"instrument_key": ",".join(keys)}
+
         try:
             response = requests.get(url, headers=headers, params=params, timeout=20)
         except Exception as e:
             st.warning(f"LTP request error: {e}")
             continue
+
         if response.status_code != 200:
             st.warning(f"LTP Error {response.status_code}: {response.text[:300]}")
             continue
+
         try:
             data = response.json().get("data", {})
         except Exception:
             continue
+
         for response_key, item in data.items():
             if not isinstance(item, dict):
                 continue
+
             true_key = item.get("instrument_token") or response_key
+
             rows.append({
                 "instrument_key": true_key,
                 "ltp": item.get("last_price"),
                 "prev_close": item.get("cp"),
                 "volume": item.get("volume"),
             })
+
     return pd.DataFrame(rows)
+
 
 def nearest_option(options_df, underlying_key, expiry, option_type, future_open):
     chain = options_df[
@@ -640,199 +647,119 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
         (options_df["expiry_date"] == expiry) &
         (options_df["instrument_type"] == option_type)
     ].copy()
+
     if chain.empty or pd.isna(future_open):
         return None
+
     chain["strike_diff"] = (chain["strike_price"] - future_open).abs()
     return chain.sort_values("strike_diff").iloc[0]
 
-def _parse_candle_dt(ts):
-    """Parses a candle's ISO8601 timestamp string (e.g.
-    "2026-08-20T10:15:00+05:30") into an IST-aware datetime. Returns
-    None if it can't be parsed."""
-    try:
-        dt = datetime.fromisoformat(ts)
-    except Exception:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=IST)
-    return dt.astimezone(IST)
 
-def _fetch_raw_candles(url, headers, max_retries=2):
-    """GET one historical-candle URL with the shared 429 backoff/retry
-    policy. Returns (candles_list, error_str) — candles_list is None on
-    any failure (error_str explains why)."""
+def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
+    safe_key = quote(instrument_key, safe="|")
+    url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1"
+
     attempt = 0
     while True:
         try:
             response = requests.get(url, headers=headers, timeout=10)
-        except Exception as e:
-            return None, f"Exception: {e}"
 
-        if response.status_code == 429:
-            # Rate limited (Cloudflare in front of Upstox). Back off and
-            # retry a couple of times before giving up on this instrument.
-            if attempt < max_retries:
-                retry_after = response.headers.get("Retry-After")
-                try:
-                    wait_s = float(retry_after) if retry_after else (1.5 * (attempt + 1))
-                except ValueError:
-                    wait_s = 1.5 * (attempt + 1)
-                time.sleep(min(wait_s, 5))
-                attempt += 1
-                continue
-            return None, "HTTP 429: Rate limited (gave up after retries)"
+            if response.status_code == 429:
+                # Rate limited (Cloudflare in front of Upstox). Back off and
+                # retry a couple of times before giving up on this instrument.
+                if attempt < max_retries:
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        wait_s = float(retry_after) if retry_after else (1.5 * (attempt + 1))
+                    except ValueError:
+                        wait_s = 1.5 * (attempt + 1)
+                    time.sleep(min(wait_s, 5))
+                    attempt += 1
+                    continue
+                return instrument_key, None, "HTTP 429: Rate limited (gave up after retries)"
 
-        if response.status_code != 200:
-            return None, f"HTTP {response.status_code}: {response.text[:200]}"
+            if response.status_code != 200:
+                return instrument_key, None, f"HTTP {response.status_code}: {response.text[:200]}"
 
-        try:
             payload = response.json()
             candles = payload.get("data", {}).get("candles", [])
+
+            if not candles:
+                return instrument_key, None, "No intraday hourly candles yet today"
+
+            candles_sorted = sorted(candles, key=lambda c: c[0])
+
+            first_hour = candles_sorted[0]
+            first_hour_high = first_hour[2]
+            trigger = first_hour_high
+
+            if trigger in (None, 0):
+                return instrument_key, None, "First-hour candle has no valid high"
+
+            # candle format: [timestamp, open, high, low, close, volume, oi]
+            # The second candle (10:15-11:15 IST) is what the breakout is
+            # actually evaluated against — both its low (quality filter)
+            # and its high (did it ever actually reach Trigger). While
+            # that hour is still forming these are the running low/high
+            # so far; once the hour closes they're final. Neither is
+            # present yet before 10:15. Using the candle's high (not the
+            # live LTP snapshot) to decide whether Trigger was reached
+            # means a strike that broke out and later pulled back still
+            # correctly stays flagged as having triggered for the rest
+            # of the day, instead of disappearing once price falls back.
+            second_hour_low = None
+            second_hour_high = None
+            if len(candles_sorted) >= 2:
+                second_hour_low = candles_sorted[1][3]
+                second_hour_high = candles_sorted[1][2]
+
+            # Status = which of TGT/SL got hit FIRST after entry (or
+            # "Open" if neither has been hit yet). Walk every candle from
+            # the entry candle (10:15) onward in chronological order and
+            # stop at the first one whose high reached TGT or whose low
+            # reached SL. If a single candle's range spans BOTH levels
+            # (common for cheap, volatile options), we can't tell from
+            # OHLC alone which was touched first within that hour — as a
+            # simple tie-break, a candle that closed above its open is
+            # treated as having pushed up into TGT first, and one that
+            # closed below its open as having dropped into SL first.
+            tgt = trigger * 1.20
+            sl = trigger * 0.95
+            status = "Open"
+
+            for c in candles_sorted[1:]:
+                c_open, c_high, c_low, c_close = c[1], c[2], c[3], c[4]
+                hit_tgt = c_high is not None and c_high >= tgt
+                hit_sl = c_low is not None and c_low <= sl
+
+                if hit_tgt and hit_sl:
+                    status = "TGT Hit" if (c_close or 0) >= (c_open or 0) else "SL Hit"
+                    break
+                elif hit_tgt:
+                    status = "TGT Hit"
+                    break
+                elif hit_sl:
+                    status = "SL Hit"
+                    break
+
+            info = {
+                "trigger": trigger,
+                "second_hour_low": second_hour_low,
+                "second_hour_high": second_hour_high,
+                "status": status,
+            }
+            return instrument_key, info, None
+
         except Exception as e:
-            return None, f"Invalid response: {e}"
+            return instrument_key, None, f"Exception: {e}"
 
-        if not candles:
-            return None, "No intraday candles yet today"
-
-        return candles, None
-
-# 5-minute granularity for the entry (10:15-11:15) window — fine enough
-# to tell whether a dip below Trigger happened BEFORE or AFTER the
-# moment price first crosses back above Trigger, which a single 1-hour
-# candle's bulk high/low can never distinguish (see the big comment
-# block above this section for why that mattered).
-ORB_CANDLE_UNIT = "minutes"
-ORB_CANDLE_INTERVAL = "5"
-
-def _compute_orb_from_candles(candles):
-    """Shared candle-crunching logic once we have a list of
-    [timestamp, open, high, low, close, volume, oi] candles for today
-    (any granularity). Buckets them into the first hour (09:15-10:15),
-    the entry window (10:15-11:15), and everything after, then:
-      - Trigger = highest high across the first-hour candles.
-      - "genuine_entry": walk the entry-window candles in chronological
-        order; the FIRST one whose high reaches Trigger is the entry.
-        Quality (Drop % <= BREAKOUT_DROP_PCT_LIMIT) is judged using
-        only the low observed in candles STRICTLY BEFORE that entry
-        candle — i.e. did price dip too far below Trigger before
-        crossing back above it, not after. This is order-aware and
-        only meaningful when the candles are finer than 1 hour; with
-        hourly candles there's only ever one "before" candle (or none),
-        which is the old, cruder approximation.
-      - Status (TGT/SL/Open): walked from the entry candle onward
-        (through the rest of the day), same same-candle tie-break as
-        before (close vs open) when a single candle spans both levels.
-    Returns an info dict, or None if the first hour isn't complete yet.
-    """
-    parsed = []
-    for c in candles:
-        dt = _parse_candle_dt(c[0])
-        if dt is None:
-            continue
-        parsed.append((dt, c[1], c[2], c[3], c[4]))  # dt, open, high, low, close
-    if not parsed:
-        return None
-    parsed.sort(key=lambda p: p[0])
-
-    first_hour = [p for p in parsed if FIRST_HOUR_START <= p[0].time() < ORB_ENTRY_WINDOW_START]
-    entry_window = [p for p in parsed if ORB_ENTRY_WINDOW_START <= p[0].time() < ORB_ENTRY_WINDOW_END]
-    after_entry = [p for p in parsed if p[0].time() >= ORB_ENTRY_WINDOW_END]
-
-    if not first_hour:
-        return None
-
-    highs = [p[2] for p in first_hour if p[2] is not None]
-    if not highs:
-        return None
-    trigger = max(highs)
-    if trigger in (None, 0):
-        return None
-
-    tgt = trigger * 1.20
-    sl = trigger * 0.95
-
-    prior_low = None
-    crossed = False
-    quality_ok = False
-    cross_index = None
-    for idx, (dt, c_open, c_high, c_low, c_close) in enumerate(entry_window):
-        if c_high is not None and c_high >= trigger:
-            crossed = True
-            if prior_low is not None and trigger > 0:
-                drop_before = max(0.0, (trigger - prior_low) / trigger * 100)
-            else:
-                drop_before = 0.0
-            quality_ok = drop_before <= BREAKOUT_DROP_PCT_LIMIT
-            cross_index = idx
-            break
-        if c_low is not None:
-            prior_low = c_low if prior_low is None else min(prior_low, c_low)
-
-    genuine_entry = crossed and quality_ok
-
-    # Informational only (shown in the Drop % column, doesn't gate
-    # visibility) — how far the WHOLE entry window's low has dipped
-    # below Trigger, and its overall high, regardless of order.
-    entry_lows = [p[3] for p in entry_window if p[3] is not None]
-    entry_highs = [p[2] for p in entry_window if p[2] is not None]
-    second_hour_low = min(entry_lows) if entry_lows else None
-    second_hour_high = max(entry_highs) if entry_highs else None
-
-    status = "Open"
-    if crossed:
-        remaining = entry_window[cross_index:] + after_entry
-        for (dt, c_open, c_high, c_low, c_close) in remaining:
-            hit_tgt = c_high is not None and c_high >= tgt
-            hit_sl = c_low is not None and c_low <= sl
-            if hit_tgt and hit_sl:
-                status = "TGT Hit" if (c_close or 0) >= (c_open or 0) else "SL Hit"
-                break
-            elif hit_tgt:
-                status = "TGT Hit"
-                break
-            elif hit_sl:
-                status = "SL Hit"
-                break
-
-    return {
-        "trigger": trigger,
-        "second_hour_low": second_hour_low,
-        "second_hour_high": second_hour_high,
-        "status": status,
-        "genuine_entry": genuine_entry,
-    }
-
-def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
-    safe_key = quote(instrument_key, safe="|")
-
-    fine_url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/{ORB_CANDLE_UNIT}/{ORB_CANDLE_INTERVAL}"
-    candles, error = _fetch_raw_candles(fine_url, headers, max_retries)
-
-    used_fallback = False
-    if candles is None:
-        # Fine-grained request failed (e.g. an unsupported interval on
-        # some accounts) — fall back to hourly candles so the scanner
-        # still works, just without order-aware quality checking.
-        used_fallback = True
-        hourly_url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1"
-        candles, fallback_error = _fetch_raw_candles(hourly_url, headers, max_retries)
-        if candles is None:
-            return instrument_key, None, error or fallback_error or "No candle data available"
-
-    info = _compute_orb_from_candles(candles)
-    if info is None:
-        return instrument_key, None, "First-hour (9:15-10:15) candle not available yet"
-
-    if used_fallback:
-        info["_degraded"] = True
-
-    return instrument_key, info, None
 
 @st.cache_data(ttl=60, show_spinner="Computing 1HR BO trigger levels...")
 def fetch_orb_map(instrument_keys, headers_tuple):
     headers = dict(headers_tuple)
     result = {}
     sample_errors = []
+
     instrument_keys = list(instrument_keys)
 
     # Fetching the ORB candle for ~100 instruments at once was hitting
@@ -854,15 +781,19 @@ def fetch_orb_map(instrument_keys, headers_tuple):
                 executor.submit(_fetch_single_orb_data, key, headers): key
                 for key in batch
             }
+
             for future in as_completed(futures):
                 key, info, error = future.result()
                 result[key] = info
+
                 if error and len(sample_errors) < 5:
                     sample_errors.append(f"{key} -> {error}")
+
             if i + batch_size < len(instrument_keys):
                 time.sleep(pause_between_batches)
 
     return result, sample_errors
+
 
 def build_open_strike_scanner(access_token, expiry_choice):
     headers = {
@@ -872,6 +803,7 @@ def build_open_strike_scanner(access_token, expiry_choice):
 
     futures, options = load_live_fo_instruments()
     expiry = get_expiry_for_choice(futures, expiry_choice)
+
     if expiry is None:
         st.error("No futures expiry found")
         return pd.DataFrame(), pd.DataFrame()
@@ -882,6 +814,7 @@ def build_open_strike_scanner(access_token, expiry_choice):
     st.caption(f"Expiry: {expiry}  |  Stock futures: {len(futures)}")
 
     fut_quotes, ohlc_raw_sample = fetch_future_open_v3(futures["instrument_key"].tolist(), headers)
+
     if fut_quotes.empty:
         st.error("No futures open data received")
         return pd.DataFrame(), pd.DataFrame()
@@ -896,12 +829,15 @@ def build_open_strike_scanner(access_token, expiry_choice):
         return pd.DataFrame(), pd.DataFrame()
 
     selected_rows = []
+
     for _, fut in futures.iterrows():
         ce = nearest_option(options, fut["underlying_key"], expiry, "CE", fut["future_open"])
         pe = nearest_option(options, fut["underlying_key"], expiry, "PE", fut["future_open"])
+
         for opt in [ce, pe]:
             if opt is None:
                 continue
+
             selected_rows.append({
                 "underlying_symbol": fut["underlying_symbol"],
                 "strike": opt["strike_price"],
@@ -912,10 +848,12 @@ def build_open_strike_scanner(access_token, expiry_choice):
             })
 
     selected = pd.DataFrame(selected_rows)
+
     if selected.empty:
         fut_keys = set(futures["underlying_key"].dropna().unique())
         opt_keys = set(options["underlying_key"].dropna().unique())
         overlap = fut_keys & opt_keys
+
         st.error("No CE/PE options found")
         with st.expander("⚠️ Why no options matched — diagnostics", expanded=True):
             st.write(f"Futures rows (with valid Open): {len(futures)}")
@@ -926,11 +864,13 @@ def build_open_strike_scanner(access_token, expiry_choice):
         return pd.DataFrame(), pd.DataFrame()
 
     option_quotes = fetch_ltp_v3(selected["option_key"].tolist(), headers)
+
     if option_quotes.empty:
         st.error("No option quote data received")
         return pd.DataFrame(), pd.DataFrame()
 
     option_quotes = option_quotes.drop_duplicates("instrument_key")
+
     selected = selected.merge(option_quotes, left_on="option_key", right_on="instrument_key", how="left")
     selected = selected.drop(columns=["instrument_key"])
 
@@ -939,12 +879,15 @@ def build_open_strike_scanner(access_token, expiry_choice):
         + selected["strike"].astype(int).astype(str) + " "
         + selected["option_type"].astype(str)
     )
+
     selected["Chg%"] = np.where(
         selected["prev_close"] > 0,
         ((selected["ltp"] - selected["prev_close"]) / selected["prev_close"]) * 100,
         np.nan
     )
+
     selected["Cap"] = selected["ltp"] * selected["Lot"]
+
     selected = selected.rename(columns={"ltp": "LTP"})
 
     # Evaluate the ENTIRE ATM CE/PE universe (every stock's nearest CE
@@ -985,6 +928,7 @@ def build_open_strike_scanner(access_token, expiry_choice):
 
     missing_count = shortlisted["Trigger"].isna().sum()
     total_count = len(shortlisted)
+
     if missing_count > 0:
         with st.expander(
             f"⚠️ 1HR BO Trigger not available for {missing_count}/{total_count} options (hidden from table below)",
@@ -1005,58 +949,28 @@ def build_open_strike_scanner(access_token, expiry_choice):
     )
     shortlisted["Drop %"] = shortlisted["Drop %"].clip(lower=0)
 
-    # Breakout-quality flag: whether the entry window's low ever dropped
-    # more than BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger, taken in
-    # bulk across the whole window. This is PURELY INFORMATIONAL — it
-    # only controls whether the Drop % cell gets flagged red; it is NOT
-    # what decides whether the row/entry is genuine (see "_crossed"
-    # below, which uses the order-aware "genuine_entry" flag instead).
-    shortlisted["_quality_breach"] = shortlisted["Drop %"].notna() & (shortlisted["Drop %"] > BREAKOUT_DROP_PCT_LIMIT)
+    # Breakout-quality filter: the 10:15 candle's low must not have
+    # dropped more than BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger before
+    # price crosses back above it. NaN Drop % (no second-hour candle yet)
+    # fails the filter, same as before 10:15.
+    quality_ok = shortlisted["Drop %"].notna() & (shortlisted["Drop %"] <= BREAKOUT_DROP_PCT_LIMIT)
 
-    # "Entered" / "_crossed" = ORDER-AWARE genuine breakout, computed in
-    # _compute_orb_from_candles (see that function for the full
-    # explanation): using 5-minute candles for the 10:15-11:15 window,
-    # walk forward in time and find the FIRST candle whose high reaches
-    # Trigger — that's the entry. Quality is judged only on the low
-    # observed in candles STRICTLY BEFORE that entry candle (did price
-    # dip more than 5% below Trigger before crossing back above it, not
-    # after). This matches the reference backtest's actual rule and
-    # fixes two earlier bugs in one go:
-    #   1) Comparing the WHOLE hour's low/high in bulk (regardless of
-    #      order) could flag a genuine entry as invalid — or an invalid
-    #      one (that only touched Trigger after crashing 40%+ below it)
-    #      as a valid entry — because 1-hour candles can't tell if a dip
-    #      happened before or after the actual cross.
-    #   2) Gating row visibility on that same bulk Drop % caused already
-    #      -shown genuine entries (e.g. CONCOR 520 PE / TORNTPHARM 5050
-    #      PE) to silently disappear later in the hour as the running
-    #      low kept dropping — even though the real breakout had already
-    #      happened.
-    # Once "_crossed" is True for a symbol, it stays tracked (Status:
-    # Open / TGT Hit / SL Hit) for the rest of the day no matter what
-    # Drop % does afterward — Drop % remains visible purely as
-    # information (flagged red when it breached the limit).
-    shortlisted["_genuine_entry_now"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "genuine_entry", False))
-    shortlisted["_crossed"] = shortlisted["_genuine_entry_now"].fillna(False).astype(bool)
-
-    # --- STICKY VISIBILITY SAFETY NET -------------------------------
-    # "_crossed" above is already naturally sticky within a single
-    # running app process (a running candle's high can't decrease), but
-    # persist every symbol that's ever been "_crossed" today to a
-    # per-day file (see load_crossed_state/save_crossed_state) anyway,
-    # as a safety net against an app restart/redeploy wiping the
-    # in-memory picture mid-session (Streamlit Cloud containers can
-    # restart on inactivity/redeploys). OR it back in on every refresh
-    # so a row that has ever shown a genuine cross never disappears
-    # again for the rest of the day, even across a restart.
-    crossed_state = load_crossed_state()
-    now_crossed_symbols = set(shortlisted.loc[shortlisted["_crossed"], "Symbol"])
-    new_symbols = now_crossed_symbols - crossed_state
-    if new_symbols:
-        crossed_state = crossed_state | new_symbols
-        save_crossed_state(crossed_state)
-    shortlisted["_crossed"] = shortlisted["Symbol"].isin(crossed_state)
-    # -----------------------------------------------------------------
+    # Valid breakout = quality filter passed AND the 10:15 candle's HIGH
+    # actually reached Trigger. Using the candle's high (not the live LTP
+    # snapshot) makes this persistent for the rest of the day — a strike
+    # that broke out and later pulled back below Trigger (e.g. it went on
+    # to hit SL) still correctly stays flagged as "triggered" instead of
+    # disappearing once price falls back, matching how the reference
+    # backtest keeps every entered trade in its Hit TGT / Hit SL / Still
+    # open lists all day. This is also what only ever fires the Telegram
+    # alert (gated separately to the 10:15-11:15 window in
+    # check_and_alert_1hr_bo, so no NEW alerts start after 11:15 even
+    # though the flag itself stays True).
+    shortlisted["_crossed"] = (
+        quality_ok
+        & shortlisted["_second_hour_high"].notna()
+        & (shortlisted["_second_hour_high"] >= shortlisted["Trigger"])
+    )
 
     shortlisted["Away %"] = np.where(
         shortlisted["Trigger"] > 0,
@@ -1066,11 +980,12 @@ def build_open_strike_scanner(access_token, expiry_choice):
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
     result = shortlisted[[
-        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "_crossed", "_quality_breach", "Lot", "Cap"
+        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "_crossed", "Lot", "Cap"
     ]].copy()
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Drop %"]:
         result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
+
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
     result["Cap"] = pd.to_numeric(result["Cap"], errors="coerce").round(0).fillna(0).astype(int)
 
@@ -1080,15 +995,16 @@ def build_open_strike_scanner(access_token, expiry_choice):
     # diagnostics expander above already explains why the rest are missing.
     result = result[result["Trigger"].notna()].reset_index(drop=True)
 
-    # Only show ENTERED options — every option whose 10:15-11:15 candle
-    # high has ever reached Trigger. Once shown, a row stays listed here
-    # for the rest of the day, no matter what Drop % does before or
-    # after, or where price ends up (Open / TGT Hit / SL Hit all stay
-    # visible) — matching the reference backtest, which keeps every
-    # entered trade in its Hit TGT / Hit SL / Still open lists. Drop %
-    # is still shown per-row as information (and flagged red when it
-    # breached the BREAKOUT_DROP_PCT_LIMIT quality threshold), it just
-    # no longer hides the row.
+    # Only show GENUINE breakouts — matches the backtest's "Triggered
+    # (entered)" list, not just "top movers by day Chg%". A row qualifies
+    # once "_crossed" is True: the 10:15 candle's low stayed within
+    # BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger AND that candle's high
+    # actually reached Trigger. Because "_crossed" is based on the 10:15
+    # candle's OHLC (not the live LTP snapshot), a strike stays listed
+    # here for the rest of the day even after it goes on to hit TGT or
+    # SL and price moves away from Trigger again — exactly like the
+    # reference backtest, which keeps every entered trade in its Hit
+    # TGT / Hit SL / Still open lists regardless of where price ends up.
     result = result[result["_crossed"]].reset_index(drop=True)
 
     ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
@@ -1096,8 +1012,10 @@ def build_open_strike_scanner(access_token, expiry_choice):
 
     return ce_table, pe_table
 
+
 def table_height(df, row_px=35, header_px=38, max_px=900):
     return min(header_px + row_px * max(len(df), 1) + 3, max_px)
+
 
 # Breakout column removed from display — this dict now only formats
 # the columns actually shown in the table.
@@ -1118,6 +1036,7 @@ DECIMAL_COLS = {
 # whether TGT or SL was hit first since entry (or "Open").
 DISPLAY_COLS_1HR_BO = ["Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "Lot", "Cap"]
 
+
 def style_away_percent(value):
     try:
         value = float(value)
@@ -1129,6 +1048,7 @@ def style_away_percent(value):
         pass
     return ""
 
+
 def style_status(value):
     if value == "TGT Hit":
         return "background-color: darkgreen; color: white; font-weight: bold;"
@@ -1138,20 +1058,6 @@ def style_status(value):
         return "background-color: #FFF3CD; color: #856404; font-weight: bold;"
     return ""
 
-def style_drop_percent(value):
-    # Purely informational flag now (see "_crossed" in
-    # build_open_strike_scanner): Drop % no longer hides a row, it just
-    # gets highlighted here when it breached the breakout-quality
-    # threshold (BREAKOUT_DROP_PCT_LIMIT), so you can still see at a
-    # glance which entries dipped further below Trigger than the
-    # backtest's "clean breakout" definition, without losing the row.
-    try:
-        value = float(value)
-        if value > BREAKOUT_DROP_PCT_LIMIT:
-            return "background-color: #FDE2E2; color: #B71C1C; font-weight: bold;"
-    except Exception:
-        pass
-    return ""
 
 # Static column tints so Trigger / TGT / SL are visually distinct at a
 # glance, AND so CE vs PE tables don't look identical to each other.
@@ -1160,16 +1066,19 @@ CE_COLUMN_TINTS = {
     "TGT": {"background-color": "#E8F5E9", "color": "#1B5E20", "font-weight": "600"},
     "SL": {"background-color": "#FFEBEE", "color": "#B71C1C", "font-weight": "600"},
 }
+
 PE_COLUMN_TINTS = {
     "Trigger": {"background-color": "#EDE7F6", "color": "#4527A0", "font-weight": "600"},
     "TGT": {"background-color": "#E0F2F1", "color": "#00695C", "font-weight": "600"},
     "SL": {"background-color": "#FFF3E0", "color": "#E65100", "font-weight": "600"},
 }
 
+
 def apply_column_tints(styler, tints):
     for col, css in tints.items():
         styler = styler.set_properties(subset=[col], **css)
     return styler
+
 
 def show_side_by_side(ce_table, pe_table):
     last_updated = get_ist_now().strftime("%H:%M:%S")
@@ -1185,7 +1094,6 @@ def show_side_by_side(ce_table, pe_table):
             ce_style = (
                 ce_table[DISPLAY_COLS_1HR_BO].style
                 .map(style_away_percent, subset=["Away %"])
-                .map(style_drop_percent, subset=["Drop %"])
                 .map(style_status, subset=["Status"])
                 .pipe(apply_column_tints, CE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
@@ -1200,12 +1108,12 @@ def show_side_by_side(ce_table, pe_table):
             pe_style = (
                 pe_table[DISPLAY_COLS_1HR_BO].style
                 .map(style_away_percent, subset=["Away %"])
-                .map(style_drop_percent, subset=["Drop %"])
                 .map(style_status, subset=["Status"])
                 .pipe(apply_column_tints, PE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
             )
             st.dataframe(pe_style, width="stretch", hide_index=True, height=table_height(pe_table))
+
 
 # ============================================================
 # ATL SCANNER — ported from atl_fetcher.py + strategy.py + the daily
@@ -1234,20 +1142,15 @@ def show_side_by_side(ce_table, pe_table):
 #        re-fetching/re-simulating the whole history every refresh.
 #   Only contracts whose entry has actually triggered (historically or
 #   today) are shown — same "genuine signals only" behaviour as 1HR BO.
-#
-#   Note: unlike 1HR BO, this scanner doesn't need the extra sticky-
-#   visibility layer above — Entry/TGT/SL here are evaluated off the
-#   running DAY candle's high/low, which are monotonic in the direction
-#   that matters (today_high never decreases, today_low never
-#   increases) with no separate "quality dip" filter that could regress
-#   a row's status back to hidden.
 # ============================================================
+
 ENTRY_MULT = 2.0   # Entry = ATL * ENTRY_MULT
 EXIT_MULT = 2.0    # TGT   = Entry * EXIT_MULT
 SL_MULT = 0.7      # SL    = Entry * SL_MULT
 
 ATL_HIST_UNIT = "days"
 ATL_HIST_INTERVAL = "1"
+
 
 def fetch_atl_history(instrument_key, headers, from_date, to_date, max_retries=2):
     """
@@ -1261,6 +1164,7 @@ def fetch_atl_history(instrument_key, headers, from_date, to_date, max_retries=2
         f"{encoded_key}/{ATL_HIST_UNIT}/{ATL_HIST_INTERVAL}/"
         f"{to_date.isoformat()}/{from_date.isoformat()}"
     )
+
     attempt = 0
     while True:
         try:
@@ -1297,6 +1201,7 @@ def fetch_atl_history(instrument_key, headers, from_date, to_date, max_retries=2
         df = df.sort_values("timestamp").reset_index(drop=True)
         return df if not df.empty else None
 
+
 def simulate_trade(candles, entry, exit_target, sl):
     """
     Unchanged from the backtest script. candles: DataFrame sorted oldest ->
@@ -1304,6 +1209,7 @@ def simulate_trade(candles, entry, exit_target, sl):
     outcome: NOT_TRIGGERED / TARGET / SL / OPEN.
     """
     entry_date = None
+
     for _, row in candles.iterrows():
         if entry_date is None:
             if row["high"] >= entry:
@@ -1340,6 +1246,7 @@ def simulate_trade(candles, entry, exit_target, sl):
         "exit_date": candles.iloc[-1]["timestamp"], "exit_price": last_close,
     }
 
+
 def _fetch_single_atl_data(instrument_key, headers, from_date, to_date, max_retries=2):
     candles = fetch_atl_history(instrument_key, headers, from_date, to_date, max_retries)
     if candles is None or candles.empty:
@@ -1370,6 +1277,7 @@ def _fetch_single_atl_data(instrument_key, headers, from_date, to_date, max_retr
         "hist_status": sim["result"],
     }
     return instrument_key, info, None
+
 
 @st.cache_data(ttl=1800, show_spinner="Scanning ATL look-back history...")
 def fetch_atl_map(instrument_keys, headers_tuple, from_date_iso, to_date_iso):
@@ -1405,6 +1313,7 @@ def fetch_atl_map(instrument_keys, headers_tuple, from_date_iso, to_date_iso):
 
     return result, sample_errors
 
+
 def fetch_today_live_ohlc(instrument_keys, headers):
     """
     Today's still-forming daily candle (running high/low) plus LTP, for
@@ -1415,30 +1324,38 @@ def fetch_today_live_ohlc(instrument_keys, headers):
     """
     url = "https://api.upstox.com/v3/market-quote/ohlc"
     rows = []
+
     for keys in chunk_list(instrument_keys):
         params = {"instrument_key": ",".join(keys), "interval": "1d"}
         try:
             response = requests.get(url, headers=headers, params=params, timeout=20)
         except Exception:
             continue
+
         if response.status_code != 200:
             continue
+
         try:
             data = response.json().get("data", {})
         except Exception:
             continue
+
         for response_key, item in data.items():
             if not isinstance(item, dict):
                 continue
+
             live = item.get("live_ohlc") or item.get("ohlc") or {}
             true_key = item.get("instrument_token") or response_key
+
             rows.append({
                 "instrument_key": true_key,
                 "today_high": live.get("high"),
                 "today_low": live.get("low"),
                 "today_ltp": item.get("last_price"),
             })
+
     return pd.DataFrame(rows)
+
 
 def _resolve_atl_status(row):
     """
@@ -1456,6 +1373,7 @@ def _resolve_atl_status(row):
         return "TGT Hit", False
     if hist == "SL":
         return "SL Hit", False
+
     if hist == "OPEN":
         # Entry already triggered on a past day within the look-back
         # window; today just decides whether TGT/SL finally hits.
@@ -1480,6 +1398,7 @@ def _resolve_atl_status(row):
         return "TGT Hit", True
     return "Open", True
 
+
 def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
     """
     ATL scanner: alerts the moment an option's Entry level (2x ATL) is
@@ -1488,9 +1407,6 @@ def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
     look-back window (those show up as "Open"/"TGT Hit"/"SL Hit" from the
     historical pass) — otherwise a fresh app load would flood Telegram
     with every already-triggered contract across the whole window.
-
-    Message includes LTP, Entry, ATL, TGT, SL, Away %, Lot and Cap so the
-    alert is self-contained without needing to open the app.
     """
     if not telegram_enabled:
         return
@@ -1499,6 +1415,7 @@ def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
 
     alerted = load_trigger_alert_state()
     newly_triggered = []
+
     for _, row in df.iterrows():
         if not row.get("_fresh_entry_today"):
             continue
@@ -1514,19 +1431,17 @@ def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
 
     sent_count = 0
     fail_count = 0
+
     for alert_id, row in newly_triggered:
-        away_pct = row.get('Away %')
-        away_str = f"{away_pct:.2f}%" if pd.notna(away_pct) else "-"
-        lot = row.get('Lot', 0)
-        cap = row.get('Cap', 0)
         message = (
-            "🎯 <b>ATL Crossed</b>\n\n"
+            "🚀 <b>ATL Scanner — Entry Triggered</b>\n\n"
             f"<b>{row['Symbol']}</b>\n"
             f"LTP: {row['LTP']:.2f}  ›  Entry: {row['Entry']:.2f}\n"
-            f"ATL: {row['ATL']:.2f}  |  TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}\n"
-            f"Away %: {away_str}  |  Lot: {lot}  |  Cap: {cap}"
+            f"ATL: {row['ATL']:.2f}  |  TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}"
         )
+
         success, error = send_telegram_alert(bot_token, chat_id, message)
+
         if success:
             alerted.add(alert_id)
             save_trigger_alert_state(alerted)
@@ -1540,6 +1455,7 @@ def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
     if fail_count:
         st.toast(f"{fail_count} ATL alert(s) failed — will retry next refresh.", icon="⚠️")
 
+
 def build_atl_scanner(access_token, expiry_choice, start_date):
     headers = {
         "Accept": "application/json",
@@ -1548,6 +1464,7 @@ def build_atl_scanner(access_token, expiry_choice, start_date):
 
     futures, options = load_live_fo_instruments()
     expiry = get_expiry_for_choice(futures, expiry_choice)
+
     if expiry is None:
         st.error("No futures expiry found")
         return pd.DataFrame(), pd.DataFrame()
@@ -1556,6 +1473,7 @@ def build_atl_scanner(access_token, expiry_choice, start_date):
     options = options[options["expiry_date"] == expiry].copy()
 
     fut_quotes, _ = fetch_future_open_v3(futures["instrument_key"].tolist(), headers)
+
     if fut_quotes.empty:
         st.error("No futures open data received")
         return pd.DataFrame(), pd.DataFrame()
@@ -1571,6 +1489,7 @@ def build_atl_scanner(access_token, expiry_choice, start_date):
     for _, fut in futures.iterrows():
         ce = nearest_option(options, fut["underlying_key"], expiry, "CE", fut["future_open"])
         pe = nearest_option(options, fut["underlying_key"], expiry, "PE", fut["future_open"])
+
         for opt in [ce, pe]:
             if opt is None:
                 continue
@@ -1617,6 +1536,7 @@ def build_atl_scanner(access_token, expiry_choice, start_date):
 
     missing_count = selected["ATL"].isna().sum()
     total_count = len(selected)
+
     if missing_count > 0:
         with st.expander(
             f"⚠️ ATL not available for {missing_count}/{total_count} options (hidden from table below)",
@@ -1663,6 +1583,7 @@ def build_atl_scanner(access_token, expiry_choice, start_date):
 
     return ce_table, pe_table
 
+
 DECIMAL_COLS_ATL = {
     "LTP": "{:.2f}",
     "ATL": "{:.2f}",
@@ -1681,11 +1602,13 @@ CE_ATL_TINTS = {
     "TGT": {"background-color": "#E8F5E9", "color": "#1B5E20", "font-weight": "600"},
     "SL": {"background-color": "#FFEBEE", "color": "#B71C1C", "font-weight": "600"},
 }
+
 PE_ATL_TINTS = {
     "Entry": {"background-color": "#EDE7F6", "color": "#4527A0", "font-weight": "600"},
     "TGT": {"background-color": "#E0F2F1", "color": "#00695C", "font-weight": "600"},
     "SL": {"background-color": "#FFF3E0", "color": "#E65100", "font-weight": "600"},
 }
+
 
 def show_atl_side_by_side(ce_table, pe_table):
     last_updated = get_ist_now().strftime("%H:%M:%S")
@@ -1721,25 +1644,31 @@ def show_atl_side_by_side(ce_table, pe_table):
             )
             st.dataframe(pe_style, width="stretch", hide_index=True, height=table_height(pe_table))
 
+
 # ============================================================
 # CONFIGURATION (sidebar)
 # ============================================================
+
 is_client_view = "UPSTOX_ACCESS_TOKEN" in st.secrets and st.secrets["UPSTOX_ACCESS_TOKEN"].strip() != ""
 
 if is_client_view:
     access_token = st.secrets["UPSTOX_ACCESS_TOKEN"]
+
     st.markdown("""
         <style>
             [data-testid="stSidebar"] { display: none; }
         </style>
     """, unsafe_allow_html=True)
+
     auto_refresh = True
     refresh_interval = 15
     expiry_type = "Current Month"
     atl_start_date = get_ist_now().date() - timedelta(days=365)
+
     telegram_bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
     telegram_enabled = bool(telegram_bot_token and telegram_chat_id)
+
 else:
     with st.sidebar:
         st.header("Configuration")
@@ -1751,11 +1680,13 @@ else:
 
         saved_token = load_token()
         access_token = st.text_input("Upstox Access Token", value=saved_token, type="password")
+
         if access_token and access_token != saved_token:
             save_token(access_token)
 
         st.markdown("---")
         st.header("Expiry Settings")
+
         expiry_type = st.radio(
             "Select Expiry Month",
             options=["Current Month", "Next Month"],
@@ -1765,6 +1696,7 @@ else:
 
         st.markdown("---")
         st.header("ATL Scanner Settings")
+
         atl_start_date = st.date_input(
             "ATL Look-back From",
             value=get_ist_now().date() - timedelta(days=365),
@@ -1781,12 +1713,14 @@ else:
 
         st.markdown("---")
         st.header("Telegram Alerts")
+
         telegram_enabled = st.checkbox(
             "Enable Trigger Alerts",
             value=st.session_state.get("telegram_enabled", False),
             key="telegram_enabled",
             help="Sends a Telegram message the moment an option triggers on either scanner: a confirmed 1HR BO breakout (10:15-11:15 IST window only), or a fresh ATL Entry crossing today."
         )
+
         telegram_bot_token = st.text_input(
             "Bot Token",
             type="password",
@@ -1794,6 +1728,7 @@ else:
             key="telegram_bot_token",
             help="Create a bot via @BotFather on Telegram to get this token."
         )
+
         telegram_chat_id = st.text_input(
             "Chat ID",
             value=st.session_state.get("telegram_chat_id", ""),
@@ -1807,7 +1742,6 @@ else:
 
         if reset_alert_state_clicked:
             save_trigger_alert_state(set())
-            save_crossed_state(set())
             st.success("Alert state cleared — already-triggered options will alert again.")
 
         if test_telegram_clicked:
@@ -1823,8 +1757,10 @@ else:
 
         st.markdown("---")
         st.header("Auto Refresh")
+
         auto_refresh = st.checkbox("Enable Auto-Refresh", value=False)
         refresh_interval = st.slider("Refresh Interval (seconds)", min_value=5, max_value=60, value=15)
+
 
 # ============================================================
 # MAIN PAGE — two live scanners, same ATM CE/PE universe:
@@ -1833,6 +1769,7 @@ else:
 #   ATL Scanner: Entry = ATL x2.0, TGT = Entry x2.0, SL = Entry x0.7
 #                (ported from atl_fetcher.py / strategy.py).
 # ============================================================
+
 st.title("Stk Op Scanner")
 
 run_every = refresh_interval if auto_refresh else None
@@ -1850,10 +1787,12 @@ else:
             ce_table, pe_table = build_open_strike_scanner(
                 access_token, expiry_type
             )
+
             if not ce_table.empty or not pe_table.empty:
                 if telegram_enabled:
                     combined = pd.concat([ce_table, pe_table], ignore_index=True)
                     check_and_alert_1hr_bo(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
+
                 show_side_by_side(ce_table, pe_table)
             else:
                 st.info("No data yet — waiting for market data.")
@@ -1869,10 +1808,12 @@ else:
             ce_table, pe_table = build_atl_scanner(
                 access_token, expiry_type, atl_start_date
             )
+
             if not ce_table.empty or not pe_table.empty:
                 if telegram_enabled:
                     combined = pd.concat([ce_table, pe_table], ignore_index=True)
                     check_and_alert_atl(combined, telegram_enabled, telegram_bot_token, telegram_chat_id)
+
                 show_atl_side_by_side(ce_table, pe_table)
             else:
                 st.info("No triggered entries yet — waiting for market data or a breakout above Entry.")
