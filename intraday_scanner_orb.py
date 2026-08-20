@@ -96,6 +96,7 @@ if not os.path.exists(DATA_DIR):
 TOKEN_FILE = os.path.join(DATA_DIR, "token.json")
 TRIGGER_ALERT_FILE = os.path.join(DATA_DIR, "trigger_alert_state.json")
 ALERT_LOG_FILE = os.path.join(DATA_DIR, "alert_log.csv")
+ENTERED_STATE_FILE = os.path.join(DATA_DIR, "entered_1hr_bo.json")
 
 
 # ============================================================
@@ -285,6 +286,68 @@ def save_trigger_alert_state(keys):
 
     if USE_GIST_PERSISTENCE:
         _gist_write_file("trigger_alert_state.json", json.dumps(data))
+
+
+# ============================================================
+# ENTERED-TODAY REGISTRY — once an option genuinely crosses Trigger
+# (a valid 1HR BO), it is "entered" for the rest of the trading day and
+# must stay in the table all day, tracked as Open / TGT Hit / SL Hit —
+# even if a later refresh's API call for that instrument fails, gets
+# rate-limited, or the option briefly drops out of the live ATM
+# universe. Previously the table was rebuilt from scratch every
+# refresh, so a single failed fetch for an already-triggered option
+# made it vanish from the table for that refresh. Now, once a key is
+# added here it is never dropped for the rest of the day — only its
+# LTP/Status/Away%/Drop% get refreshed opportunistically whenever a
+# fetch for it succeeds. Persisted to disk (and Gist, if configured)
+# the same way as the alert-dedup state, and resets automatically each
+# new trading day.
+# ============================================================
+
+def load_entered_state():
+    today_str = get_ist_now().strftime("%Y-%m-%d")
+
+    if os.path.exists(ENTERED_STATE_FILE):
+        try:
+            with open(ENTERED_STATE_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == today_str:
+                    return data.get("entries", {})
+        except:
+            pass
+
+    if USE_GIST_PERSISTENCE:
+        raw = _gist_read_file("entered_1hr_bo.json")
+        if raw:
+            try:
+                data = json.loads(raw)
+                if data.get("date") == today_str:
+                    entries = data.get("entries", {})
+                    try:
+                        with open(ENTERED_STATE_FILE, "w") as f:
+                            json.dump({"date": today_str, "entries": entries}, f)
+                    except:
+                        pass
+                    return entries
+            except Exception:
+                pass
+
+    return {}
+
+
+def save_entered_state(entries):
+    data = {
+        "date": get_ist_now().strftime("%Y-%m-%d"),
+        "entries": entries
+    }
+    try:
+        with open(ENTERED_STATE_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
+
+    if USE_GIST_PERSISTENCE:
+        _gist_write_file("entered_1hr_bo.json", json.dumps(data))
 
 
 # ============================================================
@@ -956,33 +1019,78 @@ def build_open_strike_scanner(access_token, expiry_choice):
     )
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
-    result = shortlisted[[
-        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "_crossed", "Lot", "Cap"
-    ]].copy()
+    # ------------------------------------------------------------
+    # Once a stock/option genuinely enters (crosses Trigger with a valid
+    # breakout), it must stay on the table for the rest of the day —
+    # tracked as Open / TGT Hit / SL Hit — even if a later refresh's API
+    # call for that instrument fails, gets rate-limited, or the option
+    # temporarily drops out of the live ATM universe. The persisted
+    # "entered" registry (see load_entered_state/save_entered_state) is
+    # the source of truth for WHICH rows show up; this refresh's live
+    # fetch (shortlisted) is only used to (a) detect brand-new entries
+    # and (b) opportunistically refresh LTP/Status/Away%/Drop% for rows
+    # already on the list. A failed fetch this refresh just means that
+    # row keeps showing its last-known values instead of disappearing.
+    # ------------------------------------------------------------
+    entered = load_entered_state()
+
+    crossed_now = shortlisted[shortlisted["_crossed"]]
+    for _, row in crossed_now.iterrows():
+        key = row["option_key"]
+        entry = entered.get(key, {})
+        entry.update({
+            "symbol": row["Symbol"],
+            "open": None if pd.isna(row["Open"]) else float(row["Open"]),
+            "trigger": float(row["Trigger"]),
+            "tgt": float(row["TGT"]),
+            "sl": float(row["SL"]),
+            "lot": int(row["Lot"]) if pd.notna(row["Lot"]) else 0,
+        })
+        entered[key] = entry
+
+    fresh_by_key = shortlisted.drop_duplicates("option_key").set_index("option_key")
+    for key in entered:
+        if key in fresh_by_key.index:
+            row = fresh_by_key.loc[key]
+            if pd.notna(row.get("LTP")):
+                entered[key]["last_ltp"] = float(row["LTP"])
+            if pd.notna(row.get("Status")):
+                entered[key]["last_status"] = row["Status"]
+            if pd.notna(row.get("Away %")):
+                entered[key]["last_away"] = float(row["Away %"])
+            if pd.notna(row.get("Drop %")):
+                entered[key]["last_drop"] = float(row["Drop %"])
+
+    save_entered_state(entered)
+
+    if not entered:
+        return pd.DataFrame(), pd.DataFrame()
+
+    display_rows = []
+    for info in entered.values():
+        last_ltp = info.get("last_ltp")
+        display_rows.append({
+            "Symbol": info.get("symbol"),
+            "Open": info.get("open"),
+            "LTP": last_ltp,
+            "Trigger": info.get("trigger"),
+            "Away %": info.get("last_away"),
+            "Drop %": info.get("last_drop"),
+            "TGT": info.get("tgt"),
+            "SL": info.get("sl"),
+            "Status": info.get("last_status", "Open"),
+            "_crossed": True,
+            "Lot": info.get("lot", 0),
+            "Cap": (last_ltp * info.get("lot", 0)) if last_ltp is not None else None,
+        })
+
+    result = pd.DataFrame(display_rows)
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Drop %"]:
         result[col] = pd.to_numeric(result[col], errors="coerce").round(2)
 
     result["Lot"] = pd.to_numeric(result["Lot"], errors="coerce").fillna(0).astype(int)
     result["Cap"] = pd.to_numeric(result["Cap"], errors="coerce").round(0).fillna(0).astype(int)
-
-    # Hide rows with no Trigger (ORB level not fetched yet — before
-    # 10:15 IST, or dropped due to a rate-limited/failed API call). Only
-    # options with an actual computed Trigger/TGT/SL get plotted; the
-    # diagnostics expander above already explains why the rest are missing.
-    result = result[result["Trigger"].notna()].reset_index(drop=True)
-
-    # Only show GENUINE breakouts — matches the backtest's "Triggered
-    # (entered)" list, not just "top movers by day Chg%". A row qualifies
-    # once "_crossed" is True: the 10:15 candle's low stayed within
-    # BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger AND that candle's high
-    # actually reached Trigger. Because "_crossed" is based on the 10:15
-    # candle's OHLC (not the live LTP snapshot), a strike stays listed
-    # here for the rest of the day even after it goes on to hit TGT or
-    # SL and price moves away from Trigger again — exactly like the
-    # reference backtest, which keeps every entered trade in its Hit
-    # TGT / Hit SL / Still open lists regardless of where price ends up.
-    result = result[result["_crossed"]].reset_index(drop=True)
 
     ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
     pe_table = result[result["Symbol"].str.endswith("PE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
