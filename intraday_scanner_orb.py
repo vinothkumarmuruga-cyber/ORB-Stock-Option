@@ -394,15 +394,15 @@ BREAKOUT_DROP_PCT_LIMIT = 5.0
 
 def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     """
-    1HR BO tab: alerts the moment an option's live LTP crosses its
-    Trigger (first 1-hour candle high), evaluated ONLY during the
-    10:15-11:15 IST candle (the "next one hour" candle after the
-    trigger forms) and only when the breakout-quality filter passed
-    (see BREAKOUT_DROP_PCT_LIMIT / "_crossed" in build_open_strike_scanner).
-    Uses the persisted alert-state file (tagged "1HR BO:<symbol>") so
-    de-duplication survives restarts. The crossed flag is checked internally
-    here even though the Breakout column itself is no longer shown in
-    the table.
+    1HR BO tab: alerts the moment an option's 10:15-11:15 candle high
+    reaches its Trigger (first 1-hour candle high), evaluated ONLY
+    during the 10:15-11:15 IST candle (the "next one hour" candle after
+    the trigger forms). The breakout-quality drop filter
+    (BREAKOUT_DROP_PCT_LIMIT) no longer gates this — see "_crossed" in
+    build_open_strike_scanner — so an option still alerts even if price
+    later dips more than 5% below Trigger; Drop % is shown in the table
+    as information only. Uses the persisted alert-state file (tagged
+    "1HR BO:<symbol>") so de-duplication survives restarts.
 
     No entries before 10:15 (trigger not final yet) or after 11:15
     (the 10:15 candle has closed — matches the backtest rule that
@@ -527,44 +527,39 @@ def chunk_list(items, size=300):
 #
 #   Trigger = high of the first 1-hour candle (9:15-10:15 IST).
 #   TGT = Trigger + 20%, SL = Trigger - 5%.
-#   Breakout is only ever evaluated off the NEXT one-hour candle
-#   (10:15-11:15 IST), using that candle's own OHLC rather than a live
-#   LTP snapshot:
-#     1) breakout-quality filter: the LOW of the 10:15 candle must not
-#        have dropped more than BREAKOUT_DROP_PCT_LIMIT (5%) below
-#        Trigger, AND
-#     2) the HIGH of the 10:15 candle must have actually reached
-#        Trigger.
-#   Both together = "_crossed" (valid breakout) at that instant.
+#   "Entered" ("_crossed") is evaluated off the NEXT one-hour candle
+#   (10:15-11:15 IST): the HIGH of that candle must have actually
+#   reached Trigger, at any point during the hour. That's the only
+#   condition — once an option enters, it is tracked (Status: Open /
+#   TGT Hit / SL Hit) for the rest of the day.
 #
-#   IMPORTANT: while the 10:15 candle is still forming (before 11:15),
-#   its "low so far" only ever gets LOWER (or stays the same) on each
-#   refresh, and its "high so far" only ever gets HIGHER (or stays the
-#   same). That means the "high reached Trigger" half of the check is
-#   naturally sticky already — but the "low didn't drop more than 5%"
-#   half is NOT: a symbol that looked like a clean breakout on one
-#   refresh can fail that quality check on a LATER refresh purely
-#   because price dipped further in the meantime, even though the
-#   genuine breakout moment already happened and was already shown in
-#   the table. Left unchecked, this makes rows (disproportionately on
-#   the PE side, since puts tend to be choppier) silently vanish
-#   mid-hour.
+#   Drop % (how far the 10:15 candle's low dipped below Trigger) is
+#   still computed and shown per-row, and flagged red when it exceeds
+#   BREAKOUT_DROP_PCT_LIMIT (5%) — the reference backtest's "clean
+#   breakout" quality threshold — but it is PURELY INFORMATIONAL. It no
+#   longer decides whether a row is shown. Earlier versions of this
+#   scanner used Drop % as a visibility gate, which caused rows
+#   (disproportionately on the PE side, since puts tend to be choppier)
+#   to silently disappear mid-hour: the 10:15 candle's running low only
+#   ever gets LOWER while the hour is still forming, so a symbol that
+#   looked like a clean breakout on one refresh could fail the quality
+#   check a few minutes later purely because price dipped further, even
+#   though the genuine breakout (price reaching Trigger) had already
+#   happened and was already shown. Per explicit request, entries now
+#   stay visible and tracked regardless of how far Drop % goes, either
+#   before or after the entry.
 #
-#   To fix that, every symbol that is ever computed as "_crossed" on
-#   any refresh is recorded in a persisted per-day set (see
-#   load_crossed_state/save_crossed_state above) and OR'd back into
-#   "_crossed" on every subsequent refresh. Once a row is shown, it
-#   stays shown for the rest of the day — only its Status (Open / TGT
-#   Hit / SL Hit) and other live figures keep updating — matching the
-#   reference backtest, which keeps every entered trade listed under
-#   Hit TGT / Hit SL / Still open regardless of where price ends up.
+#   As a safety net against an app restart/redeploy mid-session wiping
+#   the picture, every symbol ever computed as "_crossed" is also
+#   persisted to a per-day file (see load_crossed_state/
+#   save_crossed_state above) and OR'd back in on every refresh.
 #
-#   Only rows that have ever been genuinely "_crossed" are shown in the
-#   CE/PE tables at all (no more "every shortlisted top mover"
-#   display). The Telegram alert additionally only fires NEW alerts
-#   while the clock is inside the 10:15-11:15 window (see
-#   check_and_alert_1hr_bo) — no new alerts start after 11:15, even
-#   though the flag itself stays True.
+#   Only rows that have ever been "_crossed" are shown in the CE/PE
+#   tables at all (no "every shortlisted top mover" display). The
+#   Telegram alert additionally only fires NEW alerts while the clock
+#   is inside the 10:15-11:15 window (see check_and_alert_1hr_bo) — no
+#   new alerts start after 11:15, even though the flag itself stays
+#   True.
 # ============================================================
 def fetch_future_open_v3(instrument_keys, headers):
     url = "https://api.upstox.com/v3/market-quote/ohlc"
@@ -920,40 +915,52 @@ def build_open_strike_scanner(access_token, expiry_choice):
     )
     shortlisted["Drop %"] = shortlisted["Drop %"].clip(lower=0)
 
-    # Breakout-quality filter: the 10:15 candle's low must not have
-    # dropped more than BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger before
-    # price crosses back above it. NaN Drop % (no second-hour candle yet)
-    # fails the filter, same as before 10:15.
-    quality_ok = shortlisted["Drop %"].notna() & (shortlisted["Drop %"] <= BREAKOUT_DROP_PCT_LIMIT)
+    # Breakout-quality flag: whether the 10:15 candle's low ever dropped
+    # more than BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger. This is now
+    # PURELY INFORMATIONAL (see "_crossed" below) — it no longer decides
+    # whether a row is shown, only whether the Drop % cell gets flagged.
+    shortlisted["_quality_breach"] = shortlisted["Drop %"].notna() & (shortlisted["Drop %"] > BREAKOUT_DROP_PCT_LIMIT)
 
-    # Valid breakout AT THIS INSTANT = quality filter passed AND the
-    # 10:15 candle's HIGH actually reached Trigger.
+    # "Entered" / "_crossed" = the 10:15-11:15 candle's HIGH has, at any
+    # point, actually reached Trigger. This is the ONLY condition that
+    # decides whether an option is a genuine "triggered" entry — Drop %
+    # is shown for information but is NOT a visibility gate.
+    #
+    # Why the quality filter used to gate visibility (and why that broke
+    # things): the 10:15 candle is still FORMING while it's re-fetched
+    # every 60s. Its running high only ever increases (so "high reached
+    # Trigger" is naturally sticky on its own), but its running low only
+    # ever decreases — so Drop % can only get WORSE over time within the
+    # hour. A symbol that genuinely broke out cleanly on an earlier
+    # refresh (e.g. Drop % 3.8%, inside the 5% limit) could dip further
+    # a few minutes later (Drop % > 5%) and, when Drop % gated
+    # visibility, would flip back to hidden and silently vanish from the
+    # table — even though the real breakout (price crossing Trigger)
+    # already happened and was already shown. This is exactly what was
+    # reported: CONCOR 520 PE / TORNTPHARM 5050 PE showing at 10:48 and
+    # gone by 12:07, once their running low finally breached 5% sometime
+    # before the candle closed at 11:15.
+    #
+    # Fix: once Trigger has been reached, keep tracking that option for
+    # the rest of the day (Status = Open / TGT Hit / SL Hit) regardless
+    # of how far price dipped before or after — matching what was asked
+    # for ("if price go above Drop % limit after entry, show that
+    # also"). Drop % / the breach flag stay visible as information only.
     shortlisted["_crossed"] = (
-        quality_ok
-        & shortlisted["_second_hour_high"].notna()
+        shortlisted["_second_hour_high"].notna()
         & (shortlisted["_second_hour_high"] >= shortlisted["Trigger"])
     )
 
-    # --- STICKY VISIBILITY FIX -------------------------------------
-    # The check above is re-evaluated fresh every 60s against the STILL
-    # FORMING 10:15-11:15 candle. Its running high only ever increases
-    # (so "high reached Trigger" is naturally sticky), but its running
-    # low only ever decreases — so Drop % (and therefore quality_ok)
-    # can only get WORSE over time within the hour. A symbol that
-    # genuinely broke out cleanly on an earlier refresh (e.g. Drop %
-    # 3.8%, well inside the 5% limit) can dip further a few minutes
-    # later (Drop % > 5%) and, without this fix, would flip to
-    # "_crossed = False" and silently vanish from the table — even
-    # though the real breakout already happened and was already shown.
-    # This was reported as PE-side rows (e.g. CONCOR / TORNTPHARM)
-    # disappearing between two refreshes while the CE side stayed put.
-    #
-    # Fix: persist every symbol that has EVER been genuinely "_crossed"
-    # today (file-backed, resets automatically next trading day) and
-    # OR it back in on every refresh, so a row that has shown TGT Hit /
-    # SL Hit / Open / any confirmed cross never disappears again for
-    # the rest of the day. The Status, LTP, Away %, Drop % columns keep
-    # updating live as normal — only row VISIBILITY is made sticky.
+    # --- STICKY VISIBILITY SAFETY NET -------------------------------
+    # "_crossed" above is already naturally sticky within a single
+    # running app process (a running candle's high can't decrease), but
+    # persist every symbol that's ever been "_crossed" today to a
+    # per-day file (see load_crossed_state/save_crossed_state) anyway,
+    # as a safety net against an app restart/redeploy wiping the
+    # in-memory picture mid-session (Streamlit Cloud containers can
+    # restart on inactivity/redeploys). OR it back in on every refresh
+    # so a row that has ever shown a genuine cross never disappears
+    # again for the rest of the day, even across a restart.
     crossed_state = load_crossed_state()
     now_crossed_symbols = set(shortlisted.loc[shortlisted["_crossed"], "Symbol"])
     new_symbols = now_crossed_symbols - crossed_state
@@ -971,7 +978,7 @@ def build_open_strike_scanner(access_token, expiry_choice):
     shortlisted["Away %"] = shortlisted["Away %"].clip(lower=0)
 
     result = shortlisted[[
-        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "_crossed", "Lot", "Cap"
+        "Symbol", "Open", "LTP", "Trigger", "Away %", "Drop %", "TGT", "SL", "Status", "_crossed", "_quality_breach", "Lot", "Cap"
     ]].copy()
 
     for col in ["Open", "Trigger", "TGT", "SL", "LTP", "Away %", "Drop %"]:
@@ -985,18 +992,15 @@ def build_open_strike_scanner(access_token, expiry_choice):
     # diagnostics expander above already explains why the rest are missing.
     result = result[result["Trigger"].notna()].reset_index(drop=True)
 
-    # Only show GENUINE breakouts — matches the backtest's "Triggered
-    # (entered)" list, not just "top movers by day Chg%". A row qualifies
-    # once "_crossed" is True, which (after the sticky-visibility fix
-    # above) means it has been a genuine breakout at least once today:
-    # the 10:15 candle's low stayed within BREAKOUT_DROP_PCT_LIMIT (5%)
-    # below Trigger AND that candle's high actually reached Trigger, on
-    # SOME refresh today. Once shown, a row stays listed here for the
-    # rest of the day even after it goes on to hit TGT or SL and price
-    # moves away from Trigger again, or the running low dips further —
-    # exactly like the reference backtest, which keeps every entered
-    # trade in its Hit TGT / Hit SL / Still open lists regardless of
-    # where price ends up.
+    # Only show ENTERED options — every option whose 10:15-11:15 candle
+    # high has ever reached Trigger. Once shown, a row stays listed here
+    # for the rest of the day, no matter what Drop % does before or
+    # after, or where price ends up (Open / TGT Hit / SL Hit all stay
+    # visible) — matching the reference backtest, which keeps every
+    # entered trade in its Hit TGT / Hit SL / Still open lists. Drop %
+    # is still shown per-row as information (and flagged red when it
+    # breached the BREAKOUT_DROP_PCT_LIMIT quality threshold), it just
+    # no longer hides the row.
     result = result[result["_crossed"]].reset_index(drop=True)
 
     ce_table = result[result["Symbol"].str.endswith("CE")].sort_values("Away %", ascending=False, na_position="last").reset_index(drop=True)
@@ -1046,6 +1050,21 @@ def style_status(value):
         return "background-color: #FFF3CD; color: #856404; font-weight: bold;"
     return ""
 
+def style_drop_percent(value):
+    # Purely informational flag now (see "_crossed" in
+    # build_open_strike_scanner): Drop % no longer hides a row, it just
+    # gets highlighted here when it breached the breakout-quality
+    # threshold (BREAKOUT_DROP_PCT_LIMIT), so you can still see at a
+    # glance which entries dipped further below Trigger than the
+    # backtest's "clean breakout" definition, without losing the row.
+    try:
+        value = float(value)
+        if value > BREAKOUT_DROP_PCT_LIMIT:
+            return "background-color: #FDE2E2; color: #B71C1C; font-weight: bold;"
+    except Exception:
+        pass
+    return ""
+
 # Static column tints so Trigger / TGT / SL are visually distinct at a
 # glance, AND so CE vs PE tables don't look identical to each other.
 CE_COLUMN_TINTS = {
@@ -1078,6 +1097,7 @@ def show_side_by_side(ce_table, pe_table):
             ce_style = (
                 ce_table[DISPLAY_COLS_1HR_BO].style
                 .map(style_away_percent, subset=["Away %"])
+                .map(style_drop_percent, subset=["Drop %"])
                 .map(style_status, subset=["Status"])
                 .pipe(apply_column_tints, CE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
@@ -1092,6 +1112,7 @@ def show_side_by_side(ce_table, pe_table):
             pe_style = (
                 pe_table[DISPLAY_COLS_1HR_BO].style
                 .map(style_away_percent, subset=["Away %"])
+                .map(style_drop_percent, subset=["Drop %"])
                 .map(style_status, subset=["Status"])
                 .pipe(apply_column_tints, PE_COLUMN_TINTS)
                 .format(DECIMAL_COLS, na_rep="-")
