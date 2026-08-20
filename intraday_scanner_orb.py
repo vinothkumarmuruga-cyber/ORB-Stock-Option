@@ -407,6 +407,10 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     No entries before 10:15 (trigger not final yet) or after 11:15
     (the 10:15 candle has closed — matches the backtest rule that
     entries only fire off that one candle).
+
+    Message includes LTP, Trigger, TGT, SL, Away %, Lot and Cap — same
+    field set as the ATL Crossed alert (see check_and_alert_atl) so the
+    alert is self-contained without needing to open the app.
     """
     if not telegram_enabled:
         return
@@ -436,11 +440,16 @@ def check_and_alert_1hr_bo(df, telegram_enabled, bot_token, chat_id):
     sent_count = 0
     fail_count = 0
     for alert_id, row in newly_triggered:
+        away_pct = row.get('Away %')
+        away_str = f"{away_pct:.2f}%" if pd.notna(away_pct) else "-"
+        lot = row.get('Lot', 0)
+        cap = row.get('Cap', 0)
         message = (
-            "🚀 <b>1HR BO — Trigger Crossed</b>\n\n"
+            "🚀 <b>1HR BO Crossed</b>\n\n"
             f"<b>{row['Symbol']}</b>\n"
             f"LTP: {row['LTP']:.2f}  ›  Trigger: {row['Trigger']:.2f}\n"
-            f"TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}"
+            f"TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}\n"
+            f"Away %: {away_str}  |  Lot: {lot}  |  Cap: {cap}"
         )
         success, error = send_telegram_alert(bot_token, chat_id, message)
         if success:
@@ -1370,6 +1379,9 @@ def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
     look-back window (those show up as "Open"/"TGT Hit"/"SL Hit" from the
     historical pass) — otherwise a fresh app load would flood Telegram
     with every already-triggered contract across the whole window.
+
+    Message includes LTP, Entry, ATL, TGT, SL, Away %, Lot and Cap so the
+    alert is self-contained without needing to open the app.
     """
     if not telegram_enabled:
         return
@@ -1394,11 +1406,16 @@ def check_and_alert_atl(df, telegram_enabled, bot_token, chat_id):
     sent_count = 0
     fail_count = 0
     for alert_id, row in newly_triggered:
+        away_pct = row.get('Away %')
+        away_str = f"{away_pct:.2f}%" if pd.notna(away_pct) else "-"
+        lot = row.get('Lot', 0)
+        cap = row.get('Cap', 0)
         message = (
-            "🚀 <b>ATL Scanner — Entry Triggered</b>\n\n"
+            "🎯 <b>ATL Crossed</b>\n\n"
             f"<b>{row['Symbol']}</b>\n"
             f"LTP: {row['LTP']:.2f}  ›  Entry: {row['Entry']:.2f}\n"
-            f"ATL: {row['ATL']:.2f}  |  TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}"
+            f"ATL: {row['ATL']:.2f}  |  TGT: {row['TGT']:.2f}  |  SL: {row['SL']:.2f}\n"
+            f"Away %: {away_str}  |  Lot: {lot}  |  Cap: {cap}"
         )
         success, error = send_telegram_alert(bot_token, chat_id, message)
         if success:
