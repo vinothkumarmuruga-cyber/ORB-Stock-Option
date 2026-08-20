@@ -380,6 +380,7 @@ def send_telegram_alert(bot_token, chat_id, message):
 # hour" candle after the trigger forms. Outside that window (before
 # 10:15, or after 11:15) no new entry is considered valid, matching
 # the backtest logic: entries only fire off the 10:15 candle.
+FIRST_HOUR_START = datetime.strptime("09:15", "%H:%M").time()
 ORB_ENTRY_WINDOW_START = datetime.strptime("10:15", "%H:%M").time()
 ORB_ENTRY_WINDOW_END = datetime.strptime("11:15", "%H:%M").time()
 # Kept as an alias for readability where only the start matters.
@@ -644,99 +645,188 @@ def nearest_option(options_df, underlying_key, expiry, option_type, future_open)
     chain["strike_diff"] = (chain["strike_price"] - future_open).abs()
     return chain.sort_values("strike_diff").iloc[0]
 
-def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
-    safe_key = quote(instrument_key, safe="|")
-    url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1"
+def _parse_candle_dt(ts):
+    """Parses a candle's ISO8601 timestamp string (e.g.
+    "2026-08-20T10:15:00+05:30") into an IST-aware datetime. Returns
+    None if it can't be parsed."""
+    try:
+        dt = datetime.fromisoformat(ts)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=IST)
+    return dt.astimezone(IST)
+
+def _fetch_raw_candles(url, headers, max_retries=2):
+    """GET one historical-candle URL with the shared 429 backoff/retry
+    policy. Returns (candles_list, error_str) — candles_list is None on
+    any failure (error_str explains why)."""
     attempt = 0
     while True:
         try:
             response = requests.get(url, headers=headers, timeout=10)
-            if response.status_code == 429:
-                # Rate limited (Cloudflare in front of Upstox). Back off and
-                # retry a couple of times before giving up on this instrument.
-                if attempt < max_retries:
-                    retry_after = response.headers.get("Retry-After")
-                    try:
-                        wait_s = float(retry_after) if retry_after else (1.5 * (attempt + 1))
-                    except ValueError:
-                        wait_s = 1.5 * (attempt + 1)
-                    time.sleep(min(wait_s, 5))
-                    attempt += 1
-                    continue
-                return instrument_key, None, "HTTP 429: Rate limited (gave up after retries)"
+        except Exception as e:
+            return None, f"Exception: {e}"
 
-            if response.status_code != 200:
-                return instrument_key, None, f"HTTP {response.status_code}: {response.text[:200]}"
+        if response.status_code == 429:
+            # Rate limited (Cloudflare in front of Upstox). Back off and
+            # retry a couple of times before giving up on this instrument.
+            if attempt < max_retries:
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    wait_s = float(retry_after) if retry_after else (1.5 * (attempt + 1))
+                except ValueError:
+                    wait_s = 1.5 * (attempt + 1)
+                time.sleep(min(wait_s, 5))
+                attempt += 1
+                continue
+            return None, "HTTP 429: Rate limited (gave up after retries)"
 
+        if response.status_code != 200:
+            return None, f"HTTP {response.status_code}: {response.text[:200]}"
+
+        try:
             payload = response.json()
             candles = payload.get("data", {}).get("candles", [])
-            if not candles:
-                return instrument_key, None, "No intraday hourly candles yet today"
-
-            candles_sorted = sorted(candles, key=lambda c: c[0])
-            first_hour = candles_sorted[0]
-            first_hour_high = first_hour[2]
-            trigger = first_hour_high
-
-            if trigger in (None, 0):
-                return instrument_key, None, "First-hour candle has no valid high"
-
-            # candle format: [timestamp, open, high, low, close, volume, oi]
-            # The second candle (10:15-11:15 IST) is what the breakout is
-            # actually evaluated against — both its low (quality filter)
-            # and its high (did it ever actually reach Trigger). While
-            # that hour is still forming these are the running low/high
-            # so far; once the hour closes they're final. Neither is
-            # present yet before 10:15. Using the candle's high (not the
-            # live LTP snapshot) to decide whether Trigger was reached
-            # means a strike that broke out and later pulled back still
-            # correctly stays flagged as having triggered for the rest
-            # of the day, instead of disappearing once price falls back
-            # (see the "sticky _crossed" note above build_open_strike_scanner
-            # for why an extra persisted layer is still needed on top of
-            # this).
-            second_hour_low = None
-            second_hour_high = None
-            if len(candles_sorted) >= 2:
-                second_hour_low = candles_sorted[1][3]
-                second_hour_high = candles_sorted[1][2]
-
-            # Status = which of TGT/SL got hit FIRST after entry (or
-            # "Open" if neither has been hit yet). Walk every candle from
-            # the entry candle (10:15) onward in chronological order and
-            # stop at the first one whose high reached TGT or whose low
-            # reached SL. If a single candle's range spans BOTH levels
-            # (common for cheap, volatile options), we can't tell from
-            # OHLC alone which was touched first within that hour — as a
-            # simple tie-break, a candle that closed above its open is
-            # treated as having pushed up into TGT first, and one that
-            # closed below its open as having dropped into SL first.
-            tgt = trigger * 1.20
-            sl = trigger * 0.95
-            status = "Open"
-            for c in candles_sorted[1:]:
-                c_open, c_high, c_low, c_close = c[1], c[2], c[3], c[4]
-                hit_tgt = c_high is not None and c_high >= tgt
-                hit_sl = c_low is not None and c_low <= sl
-                if hit_tgt and hit_sl:
-                    status = "TGT Hit" if (c_close or 0) >= (c_open or 0) else "SL Hit"
-                    break
-                elif hit_tgt:
-                    status = "TGT Hit"
-                    break
-                elif hit_sl:
-                    status = "SL Hit"
-                    break
-
-            info = {
-                "trigger": trigger,
-                "second_hour_low": second_hour_low,
-                "second_hour_high": second_hour_high,
-                "status": status,
-            }
-            return instrument_key, info, None
         except Exception as e:
-            return instrument_key, None, f"Exception: {e}"
+            return None, f"Invalid response: {e}"
+
+        if not candles:
+            return None, "No intraday candles yet today"
+
+        return candles, None
+
+# 5-minute granularity for the entry (10:15-11:15) window — fine enough
+# to tell whether a dip below Trigger happened BEFORE or AFTER the
+# moment price first crosses back above Trigger, which a single 1-hour
+# candle's bulk high/low can never distinguish (see the big comment
+# block above this section for why that mattered).
+ORB_CANDLE_UNIT = "minutes"
+ORB_CANDLE_INTERVAL = "5"
+
+def _compute_orb_from_candles(candles):
+    """Shared candle-crunching logic once we have a list of
+    [timestamp, open, high, low, close, volume, oi] candles for today
+    (any granularity). Buckets them into the first hour (09:15-10:15),
+    the entry window (10:15-11:15), and everything after, then:
+      - Trigger = highest high across the first-hour candles.
+      - "genuine_entry": walk the entry-window candles in chronological
+        order; the FIRST one whose high reaches Trigger is the entry.
+        Quality (Drop % <= BREAKOUT_DROP_PCT_LIMIT) is judged using
+        only the low observed in candles STRICTLY BEFORE that entry
+        candle — i.e. did price dip too far below Trigger before
+        crossing back above it, not after. This is order-aware and
+        only meaningful when the candles are finer than 1 hour; with
+        hourly candles there's only ever one "before" candle (or none),
+        which is the old, cruder approximation.
+      - Status (TGT/SL/Open): walked from the entry candle onward
+        (through the rest of the day), same same-candle tie-break as
+        before (close vs open) when a single candle spans both levels.
+    Returns an info dict, or None if the first hour isn't complete yet.
+    """
+    parsed = []
+    for c in candles:
+        dt = _parse_candle_dt(c[0])
+        if dt is None:
+            continue
+        parsed.append((dt, c[1], c[2], c[3], c[4]))  # dt, open, high, low, close
+    if not parsed:
+        return None
+    parsed.sort(key=lambda p: p[0])
+
+    first_hour = [p for p in parsed if FIRST_HOUR_START <= p[0].time() < ORB_ENTRY_WINDOW_START]
+    entry_window = [p for p in parsed if ORB_ENTRY_WINDOW_START <= p[0].time() < ORB_ENTRY_WINDOW_END]
+    after_entry = [p for p in parsed if p[0].time() >= ORB_ENTRY_WINDOW_END]
+
+    if not first_hour:
+        return None
+
+    highs = [p[2] for p in first_hour if p[2] is not None]
+    if not highs:
+        return None
+    trigger = max(highs)
+    if trigger in (None, 0):
+        return None
+
+    tgt = trigger * 1.20
+    sl = trigger * 0.95
+
+    prior_low = None
+    crossed = False
+    quality_ok = False
+    cross_index = None
+    for idx, (dt, c_open, c_high, c_low, c_close) in enumerate(entry_window):
+        if c_high is not None and c_high >= trigger:
+            crossed = True
+            if prior_low is not None and trigger > 0:
+                drop_before = max(0.0, (trigger - prior_low) / trigger * 100)
+            else:
+                drop_before = 0.0
+            quality_ok = drop_before <= BREAKOUT_DROP_PCT_LIMIT
+            cross_index = idx
+            break
+        if c_low is not None:
+            prior_low = c_low if prior_low is None else min(prior_low, c_low)
+
+    genuine_entry = crossed and quality_ok
+
+    # Informational only (shown in the Drop % column, doesn't gate
+    # visibility) — how far the WHOLE entry window's low has dipped
+    # below Trigger, and its overall high, regardless of order.
+    entry_lows = [p[3] for p in entry_window if p[3] is not None]
+    entry_highs = [p[2] for p in entry_window if p[2] is not None]
+    second_hour_low = min(entry_lows) if entry_lows else None
+    second_hour_high = max(entry_highs) if entry_highs else None
+
+    status = "Open"
+    if crossed:
+        remaining = entry_window[cross_index:] + after_entry
+        for (dt, c_open, c_high, c_low, c_close) in remaining:
+            hit_tgt = c_high is not None and c_high >= tgt
+            hit_sl = c_low is not None and c_low <= sl
+            if hit_tgt and hit_sl:
+                status = "TGT Hit" if (c_close or 0) >= (c_open or 0) else "SL Hit"
+                break
+            elif hit_tgt:
+                status = "TGT Hit"
+                break
+            elif hit_sl:
+                status = "SL Hit"
+                break
+
+    return {
+        "trigger": trigger,
+        "second_hour_low": second_hour_low,
+        "second_hour_high": second_hour_high,
+        "status": status,
+        "genuine_entry": genuine_entry,
+    }
+
+def _fetch_single_orb_data(instrument_key, headers, max_retries=2):
+    safe_key = quote(instrument_key, safe="|")
+
+    fine_url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/{ORB_CANDLE_UNIT}/{ORB_CANDLE_INTERVAL}"
+    candles, error = _fetch_raw_candles(fine_url, headers, max_retries)
+
+    used_fallback = False
+    if candles is None:
+        # Fine-grained request failed (e.g. an unsupported interval on
+        # some accounts) — fall back to hourly candles so the scanner
+        # still works, just without order-aware quality checking.
+        used_fallback = True
+        hourly_url = f"https://api.upstox.com/v3/historical-candle/intraday/{safe_key}/hours/1"
+        candles, fallback_error = _fetch_raw_candles(hourly_url, headers, max_retries)
+        if candles is None:
+            return instrument_key, None, error or fallback_error or "No candle data available"
+
+    info = _compute_orb_from_candles(candles)
+    if info is None:
+        return instrument_key, None, "First-hour (9:15-10:15) candle not available yet"
+
+    if used_fallback:
+        info["_degraded"] = True
+
+    return instrument_key, info, None
 
 @st.cache_data(ttl=60, show_spinner="Computing 1HR BO trigger levels...")
 def fetch_orb_map(instrument_keys, headers_tuple):
@@ -915,41 +1005,39 @@ def build_open_strike_scanner(access_token, expiry_choice):
     )
     shortlisted["Drop %"] = shortlisted["Drop %"].clip(lower=0)
 
-    # Breakout-quality flag: whether the 10:15 candle's low ever dropped
-    # more than BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger. This is now
-    # PURELY INFORMATIONAL (see "_crossed" below) — it no longer decides
-    # whether a row is shown, only whether the Drop % cell gets flagged.
+    # Breakout-quality flag: whether the entry window's low ever dropped
+    # more than BREAKOUT_DROP_PCT_LIMIT (5%) below Trigger, taken in
+    # bulk across the whole window. This is PURELY INFORMATIONAL — it
+    # only controls whether the Drop % cell gets flagged red; it is NOT
+    # what decides whether the row/entry is genuine (see "_crossed"
+    # below, which uses the order-aware "genuine_entry" flag instead).
     shortlisted["_quality_breach"] = shortlisted["Drop %"].notna() & (shortlisted["Drop %"] > BREAKOUT_DROP_PCT_LIMIT)
 
-    # "Entered" / "_crossed" = the 10:15-11:15 candle's HIGH has, at any
-    # point, actually reached Trigger. This is the ONLY condition that
-    # decides whether an option is a genuine "triggered" entry — Drop %
-    # is shown for information but is NOT a visibility gate.
-    #
-    # Why the quality filter used to gate visibility (and why that broke
-    # things): the 10:15 candle is still FORMING while it's re-fetched
-    # every 60s. Its running high only ever increases (so "high reached
-    # Trigger" is naturally sticky on its own), but its running low only
-    # ever decreases — so Drop % can only get WORSE over time within the
-    # hour. A symbol that genuinely broke out cleanly on an earlier
-    # refresh (e.g. Drop % 3.8%, inside the 5% limit) could dip further
-    # a few minutes later (Drop % > 5%) and, when Drop % gated
-    # visibility, would flip back to hidden and silently vanish from the
-    # table — even though the real breakout (price crossing Trigger)
-    # already happened and was already shown. This is exactly what was
-    # reported: CONCOR 520 PE / TORNTPHARM 5050 PE showing at 10:48 and
-    # gone by 12:07, once their running low finally breached 5% sometime
-    # before the candle closed at 11:15.
-    #
-    # Fix: once Trigger has been reached, keep tracking that option for
-    # the rest of the day (Status = Open / TGT Hit / SL Hit) regardless
-    # of how far price dipped before or after — matching what was asked
-    # for ("if price go above Drop % limit after entry, show that
-    # also"). Drop % / the breach flag stay visible as information only.
-    shortlisted["_crossed"] = (
-        shortlisted["_second_hour_high"].notna()
-        & (shortlisted["_second_hour_high"] >= shortlisted["Trigger"])
-    )
+    # "Entered" / "_crossed" = ORDER-AWARE genuine breakout, computed in
+    # _compute_orb_from_candles (see that function for the full
+    # explanation): using 5-minute candles for the 10:15-11:15 window,
+    # walk forward in time and find the FIRST candle whose high reaches
+    # Trigger — that's the entry. Quality is judged only on the low
+    # observed in candles STRICTLY BEFORE that entry candle (did price
+    # dip more than 5% below Trigger before crossing back above it, not
+    # after). This matches the reference backtest's actual rule and
+    # fixes two earlier bugs in one go:
+    #   1) Comparing the WHOLE hour's low/high in bulk (regardless of
+    #      order) could flag a genuine entry as invalid — or an invalid
+    #      one (that only touched Trigger after crashing 40%+ below it)
+    #      as a valid entry — because 1-hour candles can't tell if a dip
+    #      happened before or after the actual cross.
+    #   2) Gating row visibility on that same bulk Drop % caused already
+    #      -shown genuine entries (e.g. CONCOR 520 PE / TORNTPHARM 5050
+    #      PE) to silently disappear later in the hour as the running
+    #      low kept dropping — even though the real breakout had already
+    #      happened.
+    # Once "_crossed" is True for a symbol, it stays tracked (Status:
+    # Open / TGT Hit / SL Hit) for the rest of the day no matter what
+    # Drop % does afterward — Drop % remains visible purely as
+    # information (flagged red when it breached the limit).
+    shortlisted["_genuine_entry_now"] = shortlisted["option_key"].apply(lambda k: _orb_field(k, "genuine_entry", False))
+    shortlisted["_crossed"] = shortlisted["_genuine_entry_now"].fillna(False).astype(bool)
 
     # --- STICKY VISIBILITY SAFETY NET -------------------------------
     # "_crossed" above is already naturally sticky within a single
